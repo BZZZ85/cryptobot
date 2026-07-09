@@ -6,15 +6,14 @@
 import os
 from contextlib import contextmanager
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
-
+import psycopg
+from psycopg.rows import dict_row
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 @contextmanager
 def get_conn():
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL)
     try:
         yield conn
         conn.commit()
@@ -64,7 +63,7 @@ def set_manual_ad(exchange: str, side: str, url: str = None, price: float = None
 
 def get_manual_ad(exchange: str, side: str) -> dict:
     with get_conn() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "SELECT url, price FROM manual_ads WHERE exchange=%s AND side=%s",
                 (exchange, side),
@@ -113,7 +112,7 @@ def record_click(exchange: str, side: str, username: str):
 def get_click_stats() -> list:
     """Возвращает [{"exchange":, "side":, "count":}, ...], отсортировано по убыванию."""
     with get_conn() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+       with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 SELECT exchange, side, COUNT(*) as count
                 FROM clicks
