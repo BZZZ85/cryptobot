@@ -7,6 +7,7 @@
 """
 
 import storage
+import rufinex_client
 
 
 class ManualExchange:
@@ -14,18 +15,27 @@ class ManualExchange:
 
     def __init__(self, name: str, key: str):
         self.name = name
-        self.key = key  # внутренний ключ для storage.py, например "htx" или "mexc"
+        self.key = key
 
     def get_my_ad(self, side: str, token: str = "USDT", currency: str = "RUB"):
         ad = storage.get_manual_ad(self.key, side)
         if not ad or not ad.get("url"):
             return None
+
+        # Если цена задана вручную - используем её. Иначе считаем rufinex + 5%.
+        if ad.get("price") is not None:
+            price = ad["price"]
+            price_source = "manual"
+        else:
+            price = rufinex_client.compute_price_with_markup()
+            price_source = "auto"
+
         return {
             "id": None,
-            "price": ad.get("price"),
+            "price": price,
+            "price_source": price_source,
             "link": ad["url"],
         }
 
     def get_new_orders(self):
-        # Ручная биржа не умеет сама сообщать о новых ордерах
         return []
