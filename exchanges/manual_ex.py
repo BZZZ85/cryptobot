@@ -27,7 +27,7 @@ class ManualExchange:
             price = ad["price"]
             price_source = "manual"
         else:
-            price = rufinex_client.compute_price_with_markup()
+            price = rufinex_client.compute_price_with_markup(side)
             price_source = "auto"
 
         return {
