@@ -18,6 +18,7 @@
 """
 
 import logging
+from telegram.ext import Defaults
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -50,8 +51,8 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup(
 
 
 async def build_rates_text() -> str:
-    """Собирает текст с текущими курсами всех бирж сразу (Купить и Продать)."""
-    lines = ["📊 Актуальные курсы USDT/RUB:\n"]
+    """Собирает красиво оформленный текст с курсами всех бирж (HTML-разметка)."""
+    lines = ["📊 <b>Актуальные курсы USDT/RUB</b>", "━━━━━━━━━━━━━━━"]
     for exchange in EXCHANGES.values():
         try:
             buy_ad = exchange.get_my_ad(side="buy", token=config.TOKEN, currency=config.CURRENCY)
@@ -62,9 +63,11 @@ async def build_rates_text() -> str:
         except Exception:
             sell_ad = None
 
-        buy_price = f"{buy_ad['price']:.2f} ₽" if buy_ad and buy_ad.get("price") is not None else "—"
-        sell_price = f"{sell_ad['price']:.2f} ₽" if sell_ad and sell_ad.get("price") is not None else "—"
-        lines.append(f"{exchange.name}: Купить {buy_price} | Продать {sell_price}")
+        buy_price = f"<code>{buy_ad['price']:.2f} ₽</code>" if buy_ad and buy_ad.get("price") is not None else "—"
+        sell_price = f"<code>{sell_ad['price']:.2f} ₽</code>" if sell_ad and sell_ad.get("price") is not None else "—"
+        lines.append(f"\n<b>{exchange.name}</b>")
+        lines.append(f"🟢 Купить: {buy_price}")
+        lines.append(f"🔴 Продать: {sell_price}")
 
     return "\n".join(lines)
 
@@ -328,8 +331,12 @@ async def show_action_menu(query, exchange_key: str, side: str):
         [InlineKeyboardButton("⬅️ Назад", callback_data=f"setup_back_side:{exchange_key}")],
     ]
     await query.edit_message_text(
-        f"{name} - {SIDE_LABELS[side]}\n\nСсылка: {link_text}\nЦена: {price_text}",
+        f"⚙️ <b>{name}</b> — {SIDE_LABELS[side]}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🔗 Ссылка: {link_text}\n"
+        f"💰 Цена: <code>{price_text}</code>",
         reply_markup=InlineKeyboardMarkup(buttons),
+    
     )
 
 async def ask_for_field(query, exchange_key: str, side: str, field: str):
@@ -482,10 +489,10 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пока нет статистики кликов.")
         return
 
-    lines = ["📈 Статистика кликов клиентов:"]
+    lines = ["📈 <b>Статистика кликов клиентов</b>", "━━━━━━━━━━━━━━━"]
     for row in rows:
         exchange_name = EXCHANGES[row["exchange"]].name if row["exchange"] in EXCHANGES else row["exchange"]
-        lines.append(f"{exchange_name} - {SIDE_LABELS[row['side']]}: {row['count']}")
+        lines.append(f"<b>{exchange_name}</b> — {SIDE_LABELS[row['side']]}: <code>{row['count']}</code>")
 
     await update.message.reply_text("\n".join(lines))
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -548,7 +555,8 @@ def main():
 
     storage.init_db()
 
-    application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    defaults = Defaults(parse_mode="HTML")
+    application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).defaults(defaults).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
