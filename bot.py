@@ -85,9 +85,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_setup.pop(update.effective_chat.id, None)  # сбрасываем зависшие состояния мастера, если были
     user = update.effective_user
     username = f"@{user.username}" if user.username else user.full_name
-    is_new_client = storage.record_client(update.effective_chat.id, username)
+    storage.record_client(update.effective_chat.id, username)
 
-    if is_new_client and config.WELCOME_STICKER_ID:
+    if config.WELCOME_STICKER_ID:
         try:
             await update.message.reply_sticker(config.WELCOME_STICKER_ID)
         except Exception as e:
