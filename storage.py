@@ -1,77 +1,123 @@
 """
-Простое файловое хранилище (JSON), чтобы не поднимать отдельную базу данных.
-
-Хранит:
-    - manual_ads: ссылки и цены для бирж без API (HTX, MEXC) -
-      manual_ads["htx"]["buy"] = {"url": "...", "price": 95.5}
-    - seen_order_ids: список ID ордеров, о которых уже уведомили админа
-      (чтобы не слать одно и то же уведомление повторно)
+Хранилище на PostgreSQL (Railway Postgres plugin).
+Таблицы создаются автоматически при первом запуске - init_db() вызывается из bot.py.
 """
 
-import json
 import os
-import threading
+from contextlib import contextmanager
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "data.json")
-_lock = threading.Lock()
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-_DEFAULT = {
-    "manual_ads": {},
-    "seen_order_ids": [],
-}
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-def _load() -> dict:
-    if not os.path.exists(DATA_FILE):
-        return dict(_DEFAULT)
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+@contextmanager
+def get_conn():
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def _save(data: dict):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS manual_ads (
+                    exchange TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    url TEXT,
+                    price DOUBLE PRECISION,
+                    PRIMARY KEY (exchange, side)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS seen_orders (
+                    order_id TEXT PRIMARY KEY
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS clicks (
+                    id SERIAL PRIMARY KEY,
+                    exchange TEXT,
+                    side TEXT,
+                    username TEXT,
+                    created_at TIMESTAMP DEFAULT now()
+                )
+            """)
 
 
 def set_manual_ad(exchange: str, side: str, url: str = None, price: float = None):
-    with _lock:
-        data = _load()
-        data.setdefault("manual_ads", {}).setdefault(exchange, {}).setdefault(side, {})
-        if url is not None:
-            data["manual_ads"][exchange][side]["url"] = url
-        if price is not None:
-            data["manual_ads"][exchange][side]["price"] = price
-        _save(data)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO manual_ads (exchange, side, url, price)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (exchange, side) DO UPDATE SET
+                    url = COALESCE(EXCLUDED.url, manual_ads.url),
+                    price = COALESCE(EXCLUDED.price, manual_ads.price)
+            """, (exchange, side, url, price))
 
 
 def get_manual_ad(exchange: str, side: str) -> dict:
-    data = _load()
-    return data.get("manual_ads", {}).get(exchange, {}).get(side, {})
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT url, price FROM manual_ads WHERE exchange=%s AND side=%s",
+                (exchange, side),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else {}
+
+
 def delete_manual_ad(exchange: str, side: str):
-    with _lock:
-        data = _load()
-        if exchange in data.get("manual_ads", {}) and side in data["manual_ads"][exchange]:
-            del data["manual_ads"][exchange][side]
-            _save(data)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM manual_ads WHERE exchange=%s AND side=%s", (exchange, side))
+
+
 def delete_manual_price(exchange: str, side: str):
-    """Убирает ручной override цены, чтобы снова считалась по формуле rufinex + 5%."""
-    with _lock:
-        data = _load()
-        ad = data.get("manual_ads", {}).get(exchange, {}).get(side)
-        if ad and "price" in ad:
-            del ad["price"]
-            _save(data)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE manual_ads SET price=NULL WHERE exchange=%s AND side=%s", (exchange, side))
+
 
 def is_order_seen(order_id: str) -> bool:
-    data = _load()
-    return order_id in data.get("seen_order_ids", [])
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM seen_orders WHERE order_id=%s", (order_id,))
+            return cur.fetchone() is not None
 
 
 def mark_order_seen(order_id: str):
-    with _lock:
-        data = _load()
-        seen = data.setdefault("seen_order_ids", [])
-        seen.append(order_id)
-        # ограничим список последними 2000 записями, чтобы файл не рос бесконечно
-        data["seen_order_ids"] = seen[-2000:]
-        _save(data)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO seen_orders (order_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                (order_id,),
+            )
+
+
+def record_click(exchange: str, side: str, username: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO clicks (exchange, side, username) VALUES (%s, %s, %s)",
+                (exchange, side, username),
+            )
+
+
+def get_click_stats() -> list:
+    """Возвращает [{"exchange":, "side":, "count":}, ...], отсортировано по убыванию."""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT exchange, side, COUNT(*) as count
+                FROM clicks
+                GROUP BY exchange, side
+                ORDER BY count DESC
+            """)
+            return [dict(row) for row in cur.fetchall()]
