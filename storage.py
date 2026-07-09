@@ -47,7 +47,13 @@ def init_db():
                     created_at TIMESTAMP DEFAULT now()
                 )
             """)
-
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS clients (
+                    chat_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    first_seen TIMESTAMP DEFAULT now()
+                )
+            """)
 
 def set_manual_ad(exchange: str, side: str, url: str = None, price: float = None):
     with get_conn() as conn:
@@ -120,3 +126,17 @@ def get_click_stats() -> list:
                 ORDER BY count DESC
             """)
             return [dict(row) for row in cur.fetchall()]
+def record_client(chat_id: int, username: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO clients (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (chat_id, username),
+            )
+
+
+def get_all_client_ids() -> list:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM clients")
+            return [row[0] for row in cur.fetchall()]
