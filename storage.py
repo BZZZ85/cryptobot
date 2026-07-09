@@ -126,13 +126,15 @@ def get_click_stats() -> list:
                 ORDER BY count DESC
             """)
             return [dict(row) for row in cur.fetchall()]
-def record_client(chat_id: int, username: str):
+def record_client(chat_id: int, username: str) -> bool:
+    """Возвращает True, если это новый клиент (первое обращение)."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO clients (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                "INSERT INTO clients (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING chat_id",
                 (chat_id, username),
             )
+            return cur.fetchone() is not None
 
 
 def get_all_client_ids() -> list:
