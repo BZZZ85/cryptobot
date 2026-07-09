@@ -98,8 +98,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     inline_buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy"),
-            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell"),
+            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy", style="success"),
+            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell", style="danger"),
         ]
     ])
 
@@ -123,8 +123,8 @@ pending_broadcast: dict[int, str] = {}
 async def show_side_selection(query):
     inline_buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy"),
-            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell"),
+            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy", style="success"),
+            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell", style="danger"),
         ]
     ])
     await query.edit_message_text("👇 Что делаем дальше?", reply_markup=inline_buttons)
