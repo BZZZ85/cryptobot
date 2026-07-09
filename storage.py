@@ -53,6 +53,14 @@ def delete_manual_ad(exchange: str, side: str):
         if exchange in data.get("manual_ads", {}) and side in data["manual_ads"][exchange]:
             del data["manual_ads"][exchange][side]
             _save(data)
+def delete_manual_price(exchange: str, side: str):
+    """Убирает ручной override цены, чтобы снова считалась по формуле rufinex + 5%."""
+    with _lock:
+        data = _load()
+        ad = data.get("manual_ads", {}).get(exchange, {}).get(side)
+        if ad and "price" in ad:
+            del ad["price"]
+            _save(data)
 
 def is_order_seen(order_id: str) -> bool:
     data = _load()
