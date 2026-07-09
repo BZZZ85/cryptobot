@@ -114,7 +114,14 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 pending_setup: dict[int, dict] = {}
 pending_amount_request: dict[int, dict] = {}
 pending_broadcast: dict[int, str] = {}
-
+async def show_side_selection(query):
+    inline_buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy"),
+            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell"),
+        ]
+    ])
+    await query.edit_message_text("👇 Что делаем дальше?", reply_markup=inline_buttons)
 
 def is_admin(update: Update) -> bool:
     return update.effective_chat.id in config.ADMIN_CHAT_IDS
@@ -148,13 +155,15 @@ async def handle_side_choice(query, side: str):
         buttons.append([InlineKeyboardButton(label, callback_data=f"go:{key}:{side}")])
 
     if not buttons:
+        back_only = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]])
         await query.edit_message_text(
-            "Пока нет доступных объявлений для этой операции. Попробуй позже."
+            "Пока нет доступных объявлений для этой операции. Попробуй позже.",
+            reply_markup=back_only,
         )
         return
 
+    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")])
     await query.edit_message_text("\n".join(text_lines), reply_markup=InlineKeyboardMarkup(buttons))
-
 
 async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, username: str, exchange_key: str, side: str, amount: str = None) -> str:
     """Достаёт ссылку на объявление, записывает клик и уведомляет админов. Возвращает текст для клиента."""
@@ -193,9 +202,10 @@ async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, usernam
 async def ask_for_amount(query, exchange_key: str, side: str):
     chat_id = query.message.chat_id
     pending_amount_request[chat_id] = {"exchange": exchange_key, "side": side}
-    buttons = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Пропустить", callback_data=f"amount_skip:{exchange_key}:{side}")
-    ]])
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Пропустить", callback_data=f"amount_skip:{exchange_key}:{side}")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data=f"back_to_exchanges:{side}")],
+    ])
     await query.edit_message_text(
         f"Какую сумму хочешь {SIDE_LABELS[side].lower()}? Напиши число (например 10000 ₽ или 100 USDT), "
         f"или нажми Пропустить.",
@@ -214,13 +224,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("go:"):
         _, exchange_key, side = data.split(":", 2)
         await ask_for_amount(query, exchange_key, side)
+    elif data == "back_to_main":
+        pending_amount_request.pop(query.message.chat_id, None)
+        await show_side_selection(query)
+    elif data.startswith("back_to_exchanges:"):
+        _, side = data.split(":", 1)
+        pending_amount_request.pop(query.message.chat_id, None)
+        await handle_side_choice(query, side)
     elif data.startswith("amount_skip:"):
         _, exchange_key, side = data.split(":", 2)
         pending_amount_request.pop(query.message.chat_id, None)
         user = query.from_user
         username = f"@{user.username}" if user.username else user.full_name
         text, link = await deliver_link(context, query.message.chat_id, username, exchange_key, side, amount=None)
-        open_button = InlineKeyboardMarkup([[InlineKeyboardButton(f"Открыть на {EXCHANGES[exchange_key].name} ↗", url=link)]])
+        open_button = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"Открыть на {EXCHANGES[exchange_key].name} ↗", url=link)],
+            [InlineKeyboardButton("⬅️ В начало", callback_data="back_to_main")],
+        ])
         await query.edit_message_text(text, reply_markup=open_button)
     elif data == "broadcast_confirm":
         chat_id = query.message.chat_id
@@ -391,7 +411,10 @@ async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             amount_state["exchange"], amount_state["side"],
             amount=update.message.text.strip(),
         )
-        open_button = InlineKeyboardMarkup([[InlineKeyboardButton(f"Открыть на {EXCHANGES[amount_state['exchange']].name} ↗", url=link)]])
+        open_button = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"Открыть на {EXCHANGES[amount_state['exchange']].name} ↗", url=link)],
+            [InlineKeyboardButton("⬅️ В начало", callback_data="back_to_main")],
+        ])
         await update.message.reply_text(text, reply_markup=open_button)
         return
 
