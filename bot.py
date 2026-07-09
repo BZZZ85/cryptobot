@@ -72,6 +72,10 @@ async def build_rates_text() -> str:
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает курсы всех бирж + кнопки Купить/Продать. Вызывается из /start и кнопок Старт/Рестарт."""
     pending_setup.pop(update.effective_chat.id, None)  # сбрасываем зависшие состояния мастера, если были
+    user = update.effective_user
+    username = f"@{user.username}" if user.username else user.full_name
+    storage.record_client(update.effective_chat.id, username)
+    
 
     rates_text = await build_rates_text()
 
@@ -90,6 +94,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Состояние пошагового мастера /setup для админа:
 # pending_setup[chat_id] = {"exchange": "htx", "side": "buy", "step": "link"|"price"}
 pending_setup: dict[int, dict] = {}
+pending_amount_request: dict[int, dict] = {}
+pending_broadcast: dict[int, str] = {}
 
 
 def is_admin(update: Update) -> bool:
@@ -131,41 +137,52 @@ async def handle_side_choice(query, side: str):
     await query.edit_message_text("\n".join(text_lines), reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def handle_exchange_choice(query, exchange_key: str, side: str, context: ContextTypes.DEFAULT_TYPE):
-    """Отдаёт клиенту ссылку на объявление и уведомляет админа о переходе."""
+async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, username: str, exchange_key: str, side: str, amount: str = None) -> str:
+    """Достаёт ссылку на объявление, записывает клик и уведомляет админов. Возвращает текст для клиента."""
     exchange = EXCHANGES.get(exchange_key)
     if exchange is None:
-        await query.edit_message_text("Эта биржа сейчас недоступна.")
-        return
+        return "Эта биржа сейчас недоступна."
 
     ad = exchange.get_my_ad(side=side, token=config.TOKEN, currency=config.CURRENCY)
     if not ad or not ad.get("link"):
-        await query.edit_message_text("Ссылка временно недоступна, попробуй позже.")
-        return
+        return "Ссылка временно недоступна, попробуй позже."
 
-    await query.edit_message_text(
+    amount_line = f"\nЖелаемая сумма: {amount}" if amount else ""
+    client_text = (
         f"{SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
         + (f" по цене ~{ad['price']:.2f} ₽" if ad.get("price") else "")
+        + amount_line
         + f":\n{ad['link']}\n\n"
         f"Открой ссылку в приложении/сайте {exchange.name} и оформи сделку там."
     )
-
-    # Уведомляем админа, что клиент перешёл по ссылке - особенно важно для "ручных" бирж,
-    # где бот не может сам узнать о реальном ордере на бирже.
-    user = query.from_user
-    username = f"@{user.username}" if user.username else user.full_name
 
     storage.record_click(exchange_key, side, username)
 
     notify_text = (
         f"👉 Клиент {username} выбрал: {SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
         + (f" (~{ad['price']:.2f} ₽)" if ad.get("price") else "")
+        + amount_line
     )
     for admin_id in config.ADMIN_CHAT_IDS:
         try:
             await context.bot.send_message(chat_id=admin_id, text=notify_text)
         except Exception as e:
             logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
+
+    return client_text
+
+
+async def ask_for_amount(query, exchange_key: str, side: str):
+    chat_id = query.message.chat_id
+    pending_amount_request[chat_id] = {"exchange": exchange_key, "side": side}
+    buttons = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Пропустить", callback_data=f"amount_skip:{exchange_key}:{side}")
+    ]])
+    await query.edit_message_text(
+        f"Какую сумму хочешь {SIDE_LABELS[side].lower()}? Напиши число (например 10000 ₽ или 100 USDT), "
+        f"или нажми Пропустить.",
+        reply_markup=buttons,
+    )
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,7 +195,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_side_choice(query, side)
     elif data.startswith("go:"):
         _, exchange_key, side = data.split(":", 2)
-        await handle_exchange_choice(query, exchange_key, side, context)
+        await ask_for_amount(query, exchange_key, side)
+    elif data.startswith("amount_skip:"):
+        _, exchange_key, side = data.split(":", 2)
+        pending_amount_request.pop(query.message.chat_id, None)
+        user = query.from_user
+        username = f"@{user.username}" if user.username else user.full_name
+        text = await deliver_link(context, query.message.chat_id, username, exchange_key, side, amount=None)
+        await query.edit_message_text(text)
+    elif data == "broadcast_confirm":
+        chat_id = query.message.chat_id
+        text = pending_broadcast.pop(chat_id, None)
+        if text is None:
+            await query.edit_message_text("Рассылка устарела, попробуй снова.")
+            return
+        client_ids = storage.get_all_client_ids()
+        sent = 0
+        for cid in client_ids:
+            try:
+                await context.bot.send_message(chat_id=cid, text=text)
+                sent += 1
+            except Exception:
+                pass
+        await query.edit_message_text(f"Разослано {sent} из {len(client_ids)} пользователям.")
+    elif data == "broadcast_cancel":
+        pending_broadcast.pop(query.message.chat_id, None)
+        await query.edit_message_text("Рассылка отменена.")
     elif data.startswith("setup_ex:"):
         _, exchange_key = data.split(":", 1)
         await show_side_menu(query, exchange_key)
@@ -314,11 +356,24 @@ async def ask_delete_confirm(query, exchange_key: str, side: str):
 
 
 async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ловит текстовые ответы во время прохождения мастера /setup. Обычные сообщения не трогает."""
+    """Ловит текстовые ответы: либо сумму от клиента, либо ссылку/цену от админа в /setup."""
     chat_id = update.effective_chat.id
+
+    if chat_id in pending_amount_request:
+        amount_state = pending_amount_request.pop(chat_id)
+        user = update.effective_user
+        username = f"@{user.username}" if user.username else user.full_name
+        text = await deliver_link(
+            context, chat_id, username,
+            amount_state["exchange"], amount_state["side"],
+            amount=update.message.text.strip(),
+        )
+        await update.message.reply_text(text)
+        return
+
     state = pending_setup.get(chat_id)
     if state is None:
-        return  # мастер не запущен - ничего не делаем, это не наша забота
+        return  # ни мастер, ни ожидание суммы не активны - ничего не делаем
 
     exchange_key, side, field = state["exchange"], state["side"], state["field"]
     text = update.message.text.strip()
@@ -433,6 +488,25 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{exchange_name} - {SIDE_LABELS[row['side']]}: {row['count']}")
 
     await update.message.reply_text("\n".join(lines))
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Формат: /broadcast текст сообщения")
+        return
+
+    text = " ".join(context.args)
+    client_ids = storage.get_all_client_ids()
+    pending_broadcast[update.effective_chat.id] = text
+
+    buttons = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Отправить", callback_data="broadcast_confirm"),
+        InlineKeyboardButton("❌ Отмена", callback_data="broadcast_cancel"),
+    ]])
+    await update.message.reply_text(
+        f"Разослать это сообщение {len(client_ids)} пользователям?\n\n{text}",
+        reply_markup=buttons,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +552,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("broadcast", broadcast))
     application.add_handler(CommandHandler("setup", setup))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
