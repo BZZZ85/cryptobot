@@ -18,26 +18,26 @@ class ManualExchange:
         self.key = key
 
     def get_my_ad(self, side: str, token: str = "USDT", currency: str = "RUB"):
-    ad = storage.get_manual_ad(self.key, side)
+        ad = storage.get_manual_ad(self.key, side)
 
-    # Цену считаем всегда, даже если ссылка ещё не задана - удобно для /status.
-    if ad and ad.get("price") is not None:
-        price = ad["price"]
-        price_source = "manual"
-    else:
-        price = rufinex_client.compute_price_with_markup(side)
-        price_source = "auto"
+        # Цену считаем всегда, даже если ссылка ещё не задана - удобно для /status.
+        if ad and ad.get("price") is not None:
+            price = ad["price"]
+            price_source = "manual"
+        else:
+            price = rufinex_client.compute_price_with_markup(side)
+            price_source = "auto"
 
-    # А вот ссылку клиенту без неё не даём - показывать биржу без ссылки нельзя.
-    if not ad or not ad.get("url"):
-        return {"id": None, "price": price, "price_source": price_source, "link": None}
+        # А вот ссылку клиенту без неё не даём - показывать биржу без ссылки нельзя.
+        if not ad or not ad.get("url"):
+            return {"id": None, "price": price, "price_source": price_source, "link": None}
 
-    return {
-        "id": None,
-        "price": price,
-        "price_source": price_source,
-        "link": ad["url"],
-    }
+        return {
+            "id": None,
+            "price": price,
+            "price_source": price_source,
+            "link": ad["url"],
+        }
 
     def get_new_orders(self):
         return []
