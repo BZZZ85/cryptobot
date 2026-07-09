@@ -36,11 +36,17 @@ def fetch_base_rates() -> dict | None:
 
 
 def compute_price_with_markup(side: str) -> float | None:
-    """side: 'buy' или 'sell' - какую сторону курса брать за базу."""
+    """
+    side: 'buy' или 'sell' с точки зрения ТВОЕГО объявления (что делает клиент).
+    'buy'  - клиент покупает USDT у тебя -> берём курс rufinex "sell" (дороже)
+    'sell' - клиент продаёт USDT тебе -> берём курс rufinex "buy" (дешевле)
+    """
     rates = fetch_base_rates()
     if rates is None:
         return None
-    base = rates.get(side)
+
+    rufinex_side = "sell" if side == "buy" else "buy"
+    base = rates.get(rufinex_side)
     if base is None:
         return None
     return round(base * (1 + MARKUP_PERCENT / 100), 2)
