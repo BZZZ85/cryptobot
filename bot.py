@@ -19,6 +19,7 @@
 
 import logging
 from telegram.ext import Defaults
+import os
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -42,6 +43,13 @@ logger = logging.getLogger(__name__)
 EXCHANGES = config.build_exchanges()
 
 SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
+EXCHANGE_EMOJI = {
+    "bybit": "🟡",
+    "bitget": "🔵",
+    "htx": "🟢",
+    "mexc": "🔴",
+}
+BANNER_PATH = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
 # Постоянная клавиатура снизу экрана - видна пользователю всегда
 MAIN_KEYBOARD = ReplyKeyboardMarkup([["▶️ Старт", "🔄 Рестарт"]], resize_keyboard=True)
 ADMIN_KEYBOARD = ReplyKeyboardMarkup(
@@ -53,7 +61,7 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup(
 async def build_rates_text() -> str:
     """Собирает красиво оформленный текст с курсами всех бирж (HTML-разметка)."""
     lines = ["📊 <b>Актуальные курсы USDT/RUB</b>", "━━━━━━━━━━━━━━━"]
-    for exchange in EXCHANGES.values():
+    for key, exchange in EXCHANGES.items():
         try:
             buy_ad = exchange.get_my_ad(side="buy", token=config.TOKEN, currency=config.CURRENCY)
         except Exception:
@@ -65,7 +73,7 @@ async def build_rates_text() -> str:
 
         buy_price = f"<code>{buy_ad['price']:.2f} ₽</code>" if buy_ad and buy_ad.get("price") is not None else "—"
         sell_price = f"<code>{sell_ad['price']:.2f} ₽</code>" if sell_ad and sell_ad.get("price") is not None else "—"
-        lines.append(f"\n<b>{exchange.name}</b>")
+        lines.append(f"\n{EXCHANGE_EMOJI.get(key, '🏦')} <b>{exchange.name}</b>")
         lines.append(f"🟢 Купить: {buy_price}")
         lines.append(f"🔴 Продать: {sell_price}")
 
@@ -91,6 +99,13 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Два сообщения: одно держит постоянную клавиатуру снизу, второе - курсы и инлайн-кнопки
     keyboard = ADMIN_KEYBOARD if is_admin(update) else MAIN_KEYBOARD
+    if os.path.exists(BANNER_PATH):
+        with open(BANNER_PATH, "rb") as photo:
+            await update.message.reply_photo(
+                photo=photo,
+                caption="🤖 <b>USDT/RUB Обменник</b>\nБыстро и по актуальному курсу",
+            )
+
     await update.message.reply_text("Меню:", reply_markup=keyboard)
     await update.message.reply_text(rates_text, reply_markup=inline_buttons)
 
@@ -128,7 +143,8 @@ async def handle_side_choice(query, side: str):
         if not ad or not ad.get("link"):
             continue  # у этой биржи нет ссылки - клиенту показывать нечего
         price_text = f" ~{ad['price']:.2f} ₽" if ad.get("price") else ""
-        label = f"{exchange.name}{price_text}"
+        emoji = EXCHANGE_EMOJI.get(key, "🏦")
+        label = f"{emoji} {exchange.name}{price_text}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"go:{key}:{side}")])
 
     if not buttons:
