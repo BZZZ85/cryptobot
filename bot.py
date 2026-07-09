@@ -111,9 +111,8 @@ async def handle_side_choice(query, side: str):
             logger.error(f"{exchange.name}: ошибка получения объявления - {e}")
             continue
 
-        if not ad:
-            continue  # у этой биржи нет активного объявления такого типа - не показываем её
-
+        if not ad or not ad.get("link"):
+            continue  # у этой биржи нет ссылки - клиенту показывать нечего
         price_text = f" ~{ad['price']:.2f} ₽" if ad.get("price") else ""
         label = f"{exchange.name}{price_text}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"go:{key}:{side}")])
