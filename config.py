@@ -8,7 +8,8 @@ from exchanges.manual_ex import ManualExchange
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
+_admin_ids_raw = os.getenv("ADMIN_CHAT_IDS", os.getenv("ADMIN_CHAT_ID", "0"))
+ADMIN_CHAT_IDS = [int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip()]
 
 TOKEN = "USDT"
 CURRENCY = "RUB"
