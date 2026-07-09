@@ -19,7 +19,11 @@ MARKUP_PERCENT = 5.0  # наценка сверху базового курса
 def fetch_base_rates() -> dict | None:
     """Возвращает {"buy": float, "sell": float} с rufinex.ru или None при ошибке."""
     try:
-        response = requests.get(RUFINEX_API_URL, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Referer": "https://rufinex.ru/",
+        }
+        response = requests.get(RUFINEX_API_URL, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
         return {
