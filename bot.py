@@ -106,7 +106,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption="🤖 <b>USDT/RUB Обменник</b>\nБыстро и по актуальному курсу",
             )
 
-    await update.message.reply_text("Меню:", reply_markup=keyboard)
+    await update.message.reply_text("👇 Что делаем дальше?", reply_markup=keyboard)
     await update.message.reply_text(rates_text, reply_markup=inline_buttons)
 
 # Состояние пошагового мастера /setup для админа:
@@ -166,13 +166,12 @@ async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, usernam
     if not ad or not ad.get("link"):
         return "Ссылка временно недоступна, попробуй позже."
 
-    amount_line = f"\nЖелаемая сумма: {amount}" if amount else ""
+    amount_line = f"\n💵 Сумма: <b>{amount}</b>" if amount else ""
     client_text = (
-        f"{SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
-        + (f" по цене ~{ad['price']:.2f} ₽" if ad.get("price") else "")
+        f"✅ <b>{SIDE_LABELS[side]} USDT/RUB на {exchange.name}</b>"
+        + (f"\n💱 Цена: <code>{ad['price']:.2f} ₽</code>" if ad.get("price") else "")
         + amount_line
-        + f":\n{ad['link']}\n\n"
-        f"Открой ссылку в приложении/сайте {exchange.name} и оформи сделку там."
+        + f"\n\n👇 Нажми кнопку ниже, чтобы открыть сделку"
     )
 
     storage.record_click(exchange_key, side, username)
@@ -188,7 +187,7 @@ async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, usernam
         except Exception as e:
             logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
 
-    return client_text
+    return client_text, ad["link"]
 
 
 async def ask_for_amount(query, exchange_key: str, side: str):
@@ -220,8 +219,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending_amount_request.pop(query.message.chat_id, None)
         user = query.from_user
         username = f"@{user.username}" if user.username else user.full_name
-        text = await deliver_link(context, query.message.chat_id, username, exchange_key, side, amount=None)
-        await query.edit_message_text(text)
+        text, link = await deliver_link(context, query.message.chat_id, username, exchange_key, side, amount=None)
+        open_button = InlineKeyboardMarkup([[InlineKeyboardButton(f"Открыть на {EXCHANGES[exchange_key].name} ↗", url=link)]])
+        await query.edit_message_text(text, reply_markup=open_button)
     elif data == "broadcast_confirm":
         chat_id = query.message.chat_id
         text = pending_broadcast.pop(chat_id, None)
@@ -386,12 +386,13 @@ async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount_state = pending_amount_request.pop(chat_id)
         user = update.effective_user
         username = f"@{user.username}" if user.username else user.full_name
-        text = await deliver_link(
+        text, link = await deliver_link(
             context, chat_id, username,
             amount_state["exchange"], amount_state["side"],
             amount=update.message.text.strip(),
         )
-        await update.message.reply_text(text)
+        open_button = InlineKeyboardMarkup([[InlineKeyboardButton(f"Открыть на {EXCHANGES[amount_state['exchange']].name} ↗", url=link)]])
+        await update.message.reply_text(text, reply_markup=open_button)
         return
 
     state = pending_setup.get(chat_id)
