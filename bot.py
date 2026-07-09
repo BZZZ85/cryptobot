@@ -19,7 +19,7 @@
 
 import logging
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -41,6 +41,46 @@ logger = logging.getLogger(__name__)
 EXCHANGES = config.build_exchanges()
 
 SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
+# Постоянная клавиатура снизу экрана - видна пользователю всегда
+MAIN_KEYBOARD = ReplyKeyboardMarkup([["▶️ Старт", "🔄 Рестарт"]], resize_keyboard=True)
+
+
+async def build_rates_text() -> str:
+    """Собирает текст с текущими курсами всех бирж сразу (Купить и Продать)."""
+    lines = ["📊 Актуальные курсы USDT/RUB:\n"]
+    for exchange in EXCHANGES.values():
+        try:
+            buy_ad = exchange.get_my_ad(side="buy", token=config.TOKEN, currency=config.CURRENCY)
+        except Exception:
+            buy_ad = None
+        try:
+            sell_ad = exchange.get_my_ad(side="sell", token=config.TOKEN, currency=config.CURRENCY)
+        except Exception:
+            sell_ad = None
+
+        buy_price = f"{buy_ad['price']:.2f} ₽" if buy_ad and buy_ad.get("price") is not None else "—"
+        sell_price = f"{sell_ad['price']:.2f} ₽" if sell_ad and sell_ad.get("price") is not None else "—"
+        lines.append(f"{exchange.name}: Купить {buy_price} | Продать {sell_price}")
+
+    return "\n".join(lines)
+
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает курсы всех бирж + кнопки Купить/Продать. Вызывается из /start и кнопок Старт/Рестарт."""
+    pending_setup.pop(update.effective_chat.id, None)  # сбрасываем зависшие состояния мастера, если были
+
+    rates_text = await build_rates_text()
+
+    inline_buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy"),
+            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell"),
+        ]
+    ])
+
+    # Два сообщения: одно держит постоянную клавиатуру снизу, второе - курсы и инлайн-кнопки
+    await update.message.reply_text("Меню:", reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text(rates_text, reply_markup=inline_buttons)
 
 # Состояние пошагового мастера /setup для админа:
 # pending_setup[chat_id] = {"exchange": "htx", "side": "buy", "step": "link"|"price"}
@@ -56,16 +96,7 @@ def is_admin(update: Update) -> bool:
 # ---------------------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy"),
-            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell"),
-        ]
-    ])
-    await update.message.reply_text(
-        "Привет! Что хочешь сделать?",
-        reply_markup=keyboard,
-    )
+    await show_main_menu(update, context)
 
 
 async def handle_side_choice(query, side: str):
@@ -424,6 +455,7 @@ def main():
     application.add_handler(CommandHandler("setprice", setprice))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(MessageHandler(filters.Text(["▶️ Старт", "🔄 Рестарт"]), show_main_menu))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_setup_text))
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
