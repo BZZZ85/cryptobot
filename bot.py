@@ -5,7 +5,9 @@
     /start -> кнопки "Купить" / "Продать" -> кнопки бирж с ценой -> ссылка на объявление
 
 Для ТЕБЯ (администратора, только твой ADMIN_CHAT_ID):
-    /setup                                 - мастер настройки ссылки/цены кнопками (рекомендуется)
+    /setup                                 - мастер настройки кнопками: выбрать биржу -> сторону ->
+                                              изменить ссылку/цену или удалить объявление,
+                                              на каждом шаге есть кнопка "Назад"
     /setlink <биржа> <buy|sell> <ссылка>   - задать ссылку вручную командой (запасной вариант)
     /setprice <биржа> <buy|sell> <цена>    - задать цену вручную командой (запасной вариант)
     /status                                - показать все биржи и их текущие объявления
@@ -142,10 +144,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_exchange_choice(query, exchange_key, side, context)
     elif data.startswith("setup_ex:"):
         _, exchange_key = data.split(":", 1)
-        await handle_setup_exchange(query, exchange_key)
+        await show_side_menu(query, exchange_key)
     elif data.startswith("setup_side:"):
         _, exchange_key, side = data.split(":", 2)
-        await handle_setup_side(query, exchange_key, side)
+        pending_setup.pop(query.message.chat_id, None)  # выходим из ввода текста, если были в нём
+        await show_action_menu(query, exchange_key, side)
+    elif data.startswith("setup_field:"):
+        _, exchange_key, side, field = data.split(":", 3)
+        await ask_for_field(query, exchange_key, side, field)
+    elif data.startswith("setup_delete_ask:"):
+        _, exchange_key, side = data.split(":", 2)
+        await ask_delete_confirm(query, exchange_key, side)
+    elif data.startswith("setup_delete_yes:"):
+        _, exchange_key, side = data.split(":", 2)
+        storage.delete_manual_ad(exchange_key, side)
+        await show_action_menu(query, exchange_key, side)
+    elif data == "setup_back_ex":
+        pending_setup.pop(query.message.chat_id, None)
+        await show_exchange_menu(query)
+    elif data.startswith("setup_back_side:"):
+        _, exchange_key = data.split(":", 1)
+        await show_side_menu(query, exchange_key)
+    elif data.startswith("setup_back_action:"):
+        _, exchange_key, side = data.split(":", 2)
+        pending_setup.pop(query.message.chat_id, None)
+        await show_action_menu(query, exchange_key, side)
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +176,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пошаговый мастер настройки ссылки и цены для 'ручных' бирж - с кнопками."""
+    """Точка входа в мастер настройки. Дальше всё происходит через кнопки."""
     if not is_admin(update):
         return
 
@@ -172,25 +195,80 @@ async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_setup_exchange(query, exchange_key: str):
+def _ad_status_line(exchange_key: str, side: str) -> str:
+    """Короткое текстовое описание текущего состояния объявления для меню."""
+    ad = storage.get_manual_ad(exchange_key, side)
+    if not ad:
+        return "не настроено"
+    parts = []
+    parts.append("ссылка ✅" if ad.get("url") else "ссылка ❌")
+    parts.append(f"цена {ad['price']:.2f} ₽" if ad.get("price") is not None else "цена ❌")
+    return ", ".join(parts)
+
+
+async def show_exchange_menu(query):
+    manual_keys = [key for key, ex in EXCHANGES.items() if not ex.has_api]
     buttons = [
-        [
-            InlineKeyboardButton("Покупка", callback_data=f"setup_side:{exchange_key}:buy"),
-            InlineKeyboardButton("Продажа", callback_data=f"setup_side:{exchange_key}:sell"),
-        ]
+        [InlineKeyboardButton(EXCHANGES[key].name, callback_data=f"setup_ex:{key}")]
+        for key in manual_keys
+    ]
+    await query.edit_message_text("Какую биржу настраиваем?", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def show_side_menu(query, exchange_key: str):
+    name = EXCHANGES[exchange_key].name
+    buttons = [
+        [InlineKeyboardButton(
+            f"Покупка ({_ad_status_line(exchange_key, 'buy')})",
+            callback_data=f"setup_side:{exchange_key}:buy",
+        )],
+        [InlineKeyboardButton(
+            f"Продажа ({_ad_status_line(exchange_key, 'sell')})",
+            callback_data=f"setup_side:{exchange_key}:sell",
+        )],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="setup_back_ex")],
+    ]
+    await query.edit_message_text(f"{name}: какую сторону настраиваем?", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def show_action_menu(query, exchange_key: str, side: str):
+    name = EXCHANGES[exchange_key].name
+    ad = storage.get_manual_ad(exchange_key, side)
+    link_text = ad.get("url", "не задана")
+    price_text = f"{ad['price']:.2f} ₽" if ad.get("price") is not None else "не задана"
+
+    buttons = [
+        [InlineKeyboardButton("✏️ Изменить ссылку", callback_data=f"setup_field:{exchange_key}:{side}:link")],
+        [InlineKeyboardButton("💰 Изменить цену", callback_data=f"setup_field:{exchange_key}:{side}:price")],
+        [InlineKeyboardButton("🗑 Удалить объявление", callback_data=f"setup_delete_ask:{exchange_key}:{side}")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data=f"setup_back_side:{exchange_key}")],
     ]
     await query.edit_message_text(
-        f"{EXCHANGES[exchange_key].name}: какую сторону настраиваем?",
+        f"{name} - {SIDE_LABELS[side]}\n\nСсылка: {link_text}\nЦена: {price_text}",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
-async def handle_setup_side(query, exchange_key: str, side: str):
+async def ask_for_field(query, exchange_key: str, side: str, field: str):
     chat_id = query.message.chat_id
-    pending_setup[chat_id] = {"exchange": exchange_key, "side": side, "step": "link"}
+    pending_setup[chat_id] = {"exchange": exchange_key, "side": side, "field": field}
+
+    prompt = "Пришли ссылку на объявление обычным сообщением." if field == "link" else "Пришли цену числом, например 95.50"
+    buttons = [[InlineKeyboardButton("⬅️ Назад (отмена)", callback_data=f"setup_back_action:{exchange_key}:{side}")]]
+    await query.edit_message_text(prompt, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def ask_delete_confirm(query, exchange_key: str, side: str):
+    name = EXCHANGES[exchange_key].name
+    buttons = [
+        [
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f"setup_delete_yes:{exchange_key}:{side}"),
+            InlineKeyboardButton("❌ Отмена", callback_data=f"setup_side:{exchange_key}:{side}"),
+        ]
+    ]
     await query.edit_message_text(
-        f"{EXCHANGES[exchange_key].name} ({SIDE_LABELS[side]}):\n"
-        f"Пришли ссылку на объявление обычным сообщением."
+        f"Точно удалить объявление {name} ({SIDE_LABELS[side]})? Ссылка и цена будут стёрты.",
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
 
 
@@ -201,16 +279,14 @@ async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state is None:
         return  # мастер не запущен - ничего не делаем, это не наша забота
 
-    exchange_key, side, step = state["exchange"], state["side"], state["step"]
+    exchange_key, side, field = state["exchange"], state["side"], state["field"]
     text = update.message.text.strip()
 
-    if step == "link":
+    if field == "link":
         storage.set_manual_ad(exchange_key, side, url=text)
-        state["step"] = "price"
-        await update.message.reply_text("Ссылка сохранена. Теперь пришли цену числом, например 95.50")
-        return
-
-    if step == "price":
+        pending_setup.pop(chat_id, None)
+        await update.message.reply_text(f"Ссылка сохранена: {text}")
+    else:  # field == "price"
         try:
             price = float(text.replace(",", "."))
         except ValueError:
@@ -218,11 +294,24 @@ async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         storage.set_manual_ad(exchange_key, side, price=price)
         pending_setup.pop(chat_id, None)
-        await update.message.reply_text(
-            f"Готово! {EXCHANGES[exchange_key].name} ({SIDE_LABELS[side]}): цена {price:.2f} ₽ сохранена.\n"
-            f"Проверить всё разом - /status"
-        )
-        return
+        await update.message.reply_text(f"Цена сохранена: {price:.2f} ₽")
+
+    # Показываем актуальное меню действий отдельным сообщением
+    # (предыдущее сообщение с кнопками уже было отредактировано в "пришли ссылку/цену" и текстом ответить на него нельзя)
+    name = EXCHANGES[exchange_key].name
+    ad = storage.get_manual_ad(exchange_key, side)
+    link_text = ad.get("url", "не задана")
+    price_text = f"{ad['price']:.2f} ₽" if ad.get("price") is not None else "не задана"
+    buttons = [
+        [InlineKeyboardButton("✏️ Изменить ссылку", callback_data=f"setup_field:{exchange_key}:{side}:link")],
+        [InlineKeyboardButton("💰 Изменить цену", callback_data=f"setup_field:{exchange_key}:{side}:price")],
+        [InlineKeyboardButton("🗑 Удалить объявление", callback_data=f"setup_delete_ask:{exchange_key}:{side}")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data=f"setup_back_side:{exchange_key}")],
+    ]
+    await update.message.reply_text(
+        f"{name} - {SIDE_LABELS[side]}\n\nСсылка: {link_text}\nЦена: {price_text}",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
 
 
 async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
