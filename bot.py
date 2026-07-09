@@ -5,8 +5,9 @@
     /start -> кнопки "Купить" / "Продать" -> кнопки бирж с ценой -> ссылка на объявление
 
 Для ТЕБЯ (администратора, только твой ADMIN_CHAT_ID):
-    /setlink <биржа> <buy|sell> <ссылка>   - задать ссылку для ручной биржи (htx, mexc)
-    /setprice <биржа> <buy|sell> <цена>    - задать цену для ручной биржи
+    /setup                                 - мастер настройки ссылки/цены кнопками (рекомендуется)
+    /setlink <биржа> <buy|sell> <ссылка>   - задать ссылку вручную командой (запасной вариант)
+    /setprice <биржа> <buy|sell> <цена>    - задать цену вручную командой (запасной вариант)
     /status                                - показать все биржи и их текущие объявления
 
 Фоновая проверка (только для бирж с API - Bybit, Bitget):
@@ -21,7 +22,9 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 
 import config
@@ -36,6 +39,10 @@ logger = logging.getLogger(__name__)
 EXCHANGES = config.build_exchanges()
 
 SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
+
+# Состояние пошагового мастера /setup для админа:
+# pending_setup[chat_id] = {"exchange": "htx", "side": "buy", "step": "link"|"price"}
+pending_setup: dict[int, dict] = {}
 
 
 def is_admin(update: Update) -> bool:
@@ -133,11 +140,90 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("go:"):
         _, exchange_key, side = data.split(":", 2)
         await handle_exchange_choice(query, exchange_key, side, context)
+    elif data.startswith("setup_ex:"):
+        _, exchange_key = data.split(":", 1)
+        await handle_setup_exchange(query, exchange_key)
+    elif data.startswith("setup_side:"):
+        _, exchange_key, side = data.split(":", 2)
+        await handle_setup_side(query, exchange_key, side)
 
 
 # ---------------------------------------------------------------------------
 # АДМИНСКИЕ КОМАНДЫ (только ADMIN_CHAT_ID)
 # ---------------------------------------------------------------------------
+
+async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пошаговый мастер настройки ссылки и цены для 'ручных' бирж - с кнопками."""
+    if not is_admin(update):
+        return
+
+    manual_keys = [key for key, ex in EXCHANGES.items() if not ex.has_api]
+    if not manual_keys:
+        await update.message.reply_text("Нет ручных бирж для настройки (все подключены через API).")
+        return
+
+    buttons = [
+        [InlineKeyboardButton(EXCHANGES[key].name, callback_data=f"setup_ex:{key}")]
+        for key in manual_keys
+    ]
+    await update.message.reply_text(
+        "Какую биржу настраиваем?",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def handle_setup_exchange(query, exchange_key: str):
+    buttons = [
+        [
+            InlineKeyboardButton("Покупка", callback_data=f"setup_side:{exchange_key}:buy"),
+            InlineKeyboardButton("Продажа", callback_data=f"setup_side:{exchange_key}:sell"),
+        ]
+    ]
+    await query.edit_message_text(
+        f"{EXCHANGES[exchange_key].name}: какую сторону настраиваем?",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def handle_setup_side(query, exchange_key: str, side: str):
+    chat_id = query.message.chat_id
+    pending_setup[chat_id] = {"exchange": exchange_key, "side": side, "step": "link"}
+    await query.edit_message_text(
+        f"{EXCHANGES[exchange_key].name} ({SIDE_LABELS[side]}):\n"
+        f"Пришли ссылку на объявление обычным сообщением."
+    )
+
+
+async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ловит текстовые ответы во время прохождения мастера /setup. Обычные сообщения не трогает."""
+    chat_id = update.effective_chat.id
+    state = pending_setup.get(chat_id)
+    if state is None:
+        return  # мастер не запущен - ничего не делаем, это не наша забота
+
+    exchange_key, side, step = state["exchange"], state["side"], state["step"]
+    text = update.message.text.strip()
+
+    if step == "link":
+        storage.set_manual_ad(exchange_key, side, url=text)
+        state["step"] = "price"
+        await update.message.reply_text("Ссылка сохранена. Теперь пришли цену числом, например 95.50")
+        return
+
+    if step == "price":
+        try:
+            price = float(text.replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("Это не похоже на число. Пришли цену ещё раз, например 95.50")
+            return
+        storage.set_manual_ad(exchange_key, side, price=price)
+        pending_setup.pop(chat_id, None)
+        await update.message.reply_text(
+            f"Готово! {EXCHANGES[exchange_key].name} ({SIDE_LABELS[side]}): цена {price:.2f} ₽ сохранена.\n"
+            f"Проверить всё разом - /status"
+        )
+        return
+
 
 async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
@@ -244,10 +330,12 @@ def main():
     application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("setup", setup))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_setup_text))
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
 
