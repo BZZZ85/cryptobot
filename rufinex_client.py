@@ -10,7 +10,10 @@
 """
 
 import requests
+import time
 
+_cache = {"rates": None, "fetched_at": 0}
+CACHE_TTL_SECONDS = 60  # не дёргаем rufinex чаще раза в минуту
 RUFINEX_API_URL = "https://api.rufinex.ru/api/rates"  # <- нужен настоящий адрес запроса из DevTools
 
 MARKUP_PERCENT = 5.0  # наценка сверху базового курса
