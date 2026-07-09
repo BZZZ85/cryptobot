@@ -47,7 +47,12 @@ def set_manual_ad(exchange: str, side: str, url: str = None, price: float = None
 def get_manual_ad(exchange: str, side: str) -> dict:
     data = _load()
     return data.get("manual_ads", {}).get(exchange, {}).get(side, {})
-
+def delete_manual_ad(exchange: str, side: str):
+    with _lock:
+        data = _load()
+        if exchange in data.get("manual_ads", {}) and side in data["manual_ads"][exchange]:
+            del data["manual_ads"][exchange][side]
+            _save(data)
 
 def is_order_seen(order_id: str) -> bool:
     data = _load()
