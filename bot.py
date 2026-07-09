@@ -394,8 +394,8 @@ async def ask_delete_confirm(query, exchange_key: str, side: str):
     name = EXCHANGES[exchange_key].name
     buttons = [
         [
-            InlineKeyboardButton("✅ Да, удалить", callback_data=f"setup_delete_yes:{exchange_key}:{side}"),
-            InlineKeyboardButton("❌ Отмена", callback_data=f"setup_side:{exchange_key}:{side}"),
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f"setup_delete_yes:{exchange_key}:{side}", style="danger"),
+            InlineKeyboardButton("❌ Отмена", callback_data=f"setup_side:{exchange_key}:{side}", style="primary"),
         ]
     ]
     await query.edit_message_text(
@@ -418,7 +418,7 @@ async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             amount=update.message.text.strip(),
         )
         open_button = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"Открыть на {EXCHANGES[amount_state['exchange']].name} ↗", url=link)],
+            InlineKeyboardButton(f"Открыть на {EXCHANGES[exchange_key].name} ↗", url=link, style="success")
             [InlineKeyboardButton("⬅️ В начало", callback_data="back_to_main")],
         ])
         await update.message.reply_text(text, reply_markup=open_button)
