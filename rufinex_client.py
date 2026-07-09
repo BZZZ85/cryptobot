@@ -20,7 +20,10 @@ MARKUP_PERCENT = 5.0  # наценка сверху базового курса
 
 
 def fetch_base_rates() -> dict | None:
-    """Возвращает {"buy": float, "sell": float} с rufinex.ru или None при ошибке."""
+    now = time.time()
+    if _cache["rates"] and now - _cache["fetched_at"] < CACHE_TTL_SECONDS:
+        return _cache["rates"]
+
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -29,12 +32,15 @@ def fetch_base_rates() -> dict | None:
         response = requests.get(RUFINEX_API_URL, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
-        return {
-            "buy": float(data["buy"]),
-            "sell": float(data["sell"]),
-        }
+        rates = {"buy": float(data["buy"]), "sell": float(data["sell"])}
+        _cache["rates"] = rates
+        _cache["fetched_at"] = now
+        return rates
     except Exception as e:
         print(f"Ошибка получения курса с rufinex.ru: {e}")
+        if _cache["rates"]:
+            print("Использую последний известный курс (fallback).")
+            return _cache["rates"]
         return None
 
 
