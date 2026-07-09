@@ -43,6 +43,10 @@ EXCHANGES = config.build_exchanges()
 SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
 # Постоянная клавиатура снизу экрана - видна пользователю всегда
 MAIN_KEYBOARD = ReplyKeyboardMarkup([["▶️ Старт", "🔄 Рестарт"]], resize_keyboard=True)
+ADMIN_KEYBOARD = ReplyKeyboardMarkup(
+    [["▶️ Старт", "🔄 Рестарт"], ["⚙️ Настройка"]],
+    resize_keyboard=True,
+)
 
 
 async def build_rates_text() -> str:
@@ -79,7 +83,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     # Два сообщения: одно держит постоянную клавиатуру снизу, второе - курсы и инлайн-кнопки
-    await update.message.reply_text("Меню:", reply_markup=MAIN_KEYBOARD)
+    keyboard = ADMIN_KEYBOARD if is_admin(update) else MAIN_KEYBOARD
+    await update.message.reply_text("Меню:", reply_markup=keyboard)
     await update.message.reply_text(rates_text, reply_markup=inline_buttons)
 
 # Состояние пошагового мастера /setup для админа:
@@ -455,6 +460,7 @@ def main():
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.Text(["▶️ Старт", "🔄 Рестарт"]), show_main_menu))
+    application.add_handler(MessageHandler(filters.Text(["⚙️ Настройка"]), setup))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_setup_text))
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
