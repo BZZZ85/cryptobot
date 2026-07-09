@@ -93,7 +93,7 @@ pending_setup: dict[int, dict] = {}
 
 
 def is_admin(update: Update) -> bool:
-    return update.effective_chat.id == config.ADMIN_CHAT_ID
+    return update.effective_chat.id in config.ADMIN_CHAT_IDS
 
 
 # ---------------------------------------------------------------------------
@@ -154,16 +154,18 @@ async def handle_exchange_choice(query, exchange_key: str, side: str, context: C
     # где бот не может сам узнать о реальном ордере на бирже.
     user = query.from_user
     username = f"@{user.username}" if user.username else user.full_name
-    try:
-        await context.bot.send_message(
-            chat_id=config.ADMIN_CHAT_ID,
-            text=(
-                f"👉 Клиент {username} выбрал: {SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
-                + (f" (~{ad['price']:.2f} ₽)" if ad.get("price") else "")
-            ),
-        )
-    except Exception as e:
-        logger.error(f"Не удалось уведомить админа: {e}")
+
+    storage.record_click(exchange_key, side, username)
+
+    notify_text = (
+        f"👉 Клиент {username} выбрал: {SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
+        + (f" (~{ad['price']:.2f} ₽)" if ad.get("price") else "")
+    )
+    for admin_id in config.ADMIN_CHAT_IDS:
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=notify_text)
+        except Exception as e:
+            logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,6 +195,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("setup_delete_yes:"):
         _, exchange_key, side = data.split(":", 2)
         storage.delete_manual_ad(exchange_key, side)
+        await show_action_menu(query, exchange_key, side)
+    elif data.startswith("setup_reset_price:"):
+        _, exchange_key, side = data.split(":", 2)
+        storage.delete_manual_price(exchange_key, side)
         await show_action_menu(query, exchange_key, side)
     elif data == "setup_back_ex":
         pending_setup.pop(query.message.chat_id, None)
@@ -275,6 +281,7 @@ async def show_action_menu(query, exchange_key: str, side: str):
     buttons = [
         [InlineKeyboardButton("✏️ Изменить ссылку", callback_data=f"setup_field:{exchange_key}:{side}:link")],
         [InlineKeyboardButton("💰 Изменить цену", callback_data=f"setup_field:{exchange_key}:{side}:price")],
+        [InlineKeyboardButton("🔄 Сбросить на авто (rufinex+5%)", callback_data=f"setup_reset_price:{exchange_key}:{side}")],
         [InlineKeyboardButton("🗑 Удалить объявление", callback_data=f"setup_delete_ask:{exchange_key}:{side}")],
         [InlineKeyboardButton("⬅️ Назад", callback_data=f"setup_back_side:{exchange_key}")],
     ]
@@ -282,7 +289,6 @@ async def show_action_menu(query, exchange_key: str, side: str):
         f"{name} - {SIDE_LABELS[side]}\n\nСсылка: {link_text}\nЦена: {price_text}",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
-
 
 async def ask_for_field(query, exchange_key: str, side: str, field: str):
     chat_id = query.message.chat_id
@@ -412,6 +418,21 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lines.append(f"  {SIDE_LABELS[side]}: объявление не найдено")
 
     await update.message.reply_text("\n".join(lines))
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+
+    rows = storage.get_click_stats()
+    if not rows:
+        await update.message.reply_text("Пока нет статистики кликов.")
+        return
+
+    lines = ["📈 Статистика кликов клиентов:"]
+    for row in rows:
+        exchange_name = EXCHANGES[row["exchange"]].name if row["exchange"] in EXCHANGES else row["exchange"]
+        lines.append(f"{exchange_name} - {SIDE_LABELS[row['side']]}: {row['count']}")
+
+    await update.message.reply_text("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -439,21 +460,24 @@ async def check_new_orders(context: ContextTypes.DEFAULT_TYPE):
                 f"Сумма: {order['amount']} {order['currency']}\n"
                 f"Количество: {order['quantity']} {order['token']}"
             )
-            await context.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
-
+            for admin_id in config.ADMIN_CHAT_IDS:
+                await context.bot.send_message(chat_id=admin_id, text=text)
 
 # ---------------------------------------------------------------------------
 # ЗАПУСК
 # ---------------------------------------------------------------------------
 
 def main():
-    if not config.TELEGRAM_BOT_TOKEN or not config.ADMIN_CHAT_ID:
-        print("ОШИБКА: заполни TELEGRAM_BOT_TOKEN и ADMIN_CHAT_ID в .env")
+    if not config.TELEGRAM_BOT_TOKEN or not config.ADMIN_CHAT_IDS:
+        print("ОШИБКА: заполни TELEGRAM_BOT_TOKEN и ADMIN_CHAT_IDS в .env")
         return
+
+    storage.init_db()
 
     application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("setup", setup))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
