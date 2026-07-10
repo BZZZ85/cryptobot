@@ -44,10 +44,10 @@ EXCHANGES = config.build_exchanges()
 
 SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
 EXCHANGE_EMOJI = {
-    "bybit": "🟡",
-    "bitget": "🔵",
-    "htx": "🟢",
-    "mexc": "🔴",
+    "bybit": "🟨",
+    "bitget": "🔴",
+    "htx": "🟦",
+    "mexc": "🟩",
 }
 BANNER_PATH = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
 # Постоянная клавиатура снизу экрана - видна пользователю всегда
