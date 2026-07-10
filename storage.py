@@ -54,6 +54,14 @@ def init_db():
                     first_seen TIMESTAMP DEFAULT now()
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS rate_history (
+                    id SERIAL PRIMARY KEY,
+                    buy DOUBLE PRECISION,
+                    sell DOUBLE PRECISION,
+                    recorded_at TIMESTAMP DEFAULT now()
+                )
+            """)
 
 def set_manual_ad(exchange: str, side: str, url: str = None, price: float = None):
     with get_conn() as conn:
