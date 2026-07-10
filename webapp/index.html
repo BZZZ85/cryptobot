@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Обменник USDT/RUB</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; padding: 16px; background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
         h2 { margin-top: 0; }
@@ -20,6 +21,13 @@
     <div id="admin-panel" style="display:none; margin-top:24px;">
     <h3>⚙️ Управление объявлениями</h3>
     <div id="ads-list"></div>
+</div>
+    <div id="charts-panel" style="display:none; margin-top:24px;">
+    <h3>📈 Курс за 24 часа</h3>
+    <canvas id="rateChart" height="180"></canvas>
+
+    <h3>📊 Клики за 7 дней</h3>
+    <canvas id="clickChart" height="180"></canvas>
 </div>
 
     <script>
@@ -99,6 +107,41 @@
                     });
 
                     panel.style.display = "block";
+                    panel.style.display = "block";
+                    loadCharts();
+                });
+        }
+        function loadCharts() {
+            document.getElementById("charts-panel").style.display = "block";
+
+            fetch("/api/admin/rate_history?hours=24", { headers: { "Authorization": tg.initData } })
+                .then(r => r.json())
+                .then(data => {
+                    const labels = data.history.map(h => new Date(h.recorded_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
+                    new Chart(document.getElementById("rateChart"), {
+                        type: "line",
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                { label: "Покупка (rufinex)", data: data.history.map(h => h.buy), borderColor: "#34c759", tension: 0.3 },
+                                { label: "Продажа (rufinex)", data: data.history.map(h => h.sell), borderColor: "#ff3b30", tension: 0.3 },
+                            ],
+                        },
+                        options: { responsive: true, plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
+                    });
+                });
+
+            fetch("/api/admin/click_history?days=7", { headers: { "Authorization": tg.initData } })
+                .then(r => r.json())
+                .then(data => {
+                    new Chart(document.getElementById("clickChart"), {
+                        type: "bar",
+                        data: {
+                            labels: data.history.map(h => h.day),
+                            datasets: [{ label: "Клики клиентов", data: data.history.map(h => h.count), backgroundColor: "#0a84ff" }],
+                        },
+                        options: { responsive: true, plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
+                    });
                 });
         }
     </script>
