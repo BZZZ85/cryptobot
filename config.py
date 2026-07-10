@@ -13,7 +13,7 @@ ADMIN_CHAT_IDS = [int(x.strip()) for x in _admin_ids_raw.split(",") if x.strip()
 WELCOME_STICKER_ID = os.getenv("WELCOME_STICKER_ID", "")
 TOKEN = "USDT"
 CURRENCY = "RUB"
-
+SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@your_username")
 CHECK_ORDERS_INTERVAL = 30  # секунд
 
 
