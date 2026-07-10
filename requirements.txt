@@ -3,3 +3,5 @@ bybit-p2p==1.2.0
 python-dotenv==1.0.1
 requests==2.32.3
 psycopg[binary]==3.2.3
+fastapi==0.115.5
+uvicorn==0.32.1
