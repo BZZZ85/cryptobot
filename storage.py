@@ -150,3 +150,35 @@ def get_all_client_ids() -> list:
         with conn.cursor() as cur:
             cur.execute("SELECT chat_id FROM clients")
             return [row[0] for row in cur.fetchall()]
+def record_rate_snapshot(buy: float, sell: float):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO rate_history (buy, sell) VALUES (%s, %s)",
+                (buy, sell),
+            )
+
+
+def get_rate_history(hours: int = 24) -> list:
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("""
+                SELECT buy, sell, recorded_at
+                FROM rate_history
+                WHERE recorded_at > now() - (%s || ' hours')::interval
+                ORDER BY recorded_at ASC
+            """, (hours,))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def get_click_history(days: int = 7) -> list:
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("""
+                SELECT DATE(created_at) as day, COUNT(*) as count
+                FROM clicks
+                WHERE created_at > now() - (%s || ' days')::interval
+                GROUP BY DATE(created_at)
+                ORDER BY day ASC
+            """, (days,))
+            return [{"day": str(row["day"]), "count": row["count"]} for row in cur.fetchall()]
