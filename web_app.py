@@ -92,4 +92,12 @@ async def api_admin_reset_price(payload: AdSideKey, user=Depends(require_admin))
 async def api_admin_delete_ad(payload: AdSideKey, user=Depends(require_admin)):
     storage.delete_manual_ad(payload.exchange, payload.side)
     return {"ok": True}
+@app.get("/api/admin/rate_history")
+async def api_rate_history(hours: int = 24, user=Depends(require_admin)):
+    return {"history": storage.get_rate_history(hours)}
+
+
+@app.get("/api/admin/click_history")
+async def api_click_history(days: int = 7, user=Depends(require_admin)):
+    return {"history": storage.get_click_history(days)}
 app.mount("/", StaticFiles(directory="webapp", html=True), name="static")
