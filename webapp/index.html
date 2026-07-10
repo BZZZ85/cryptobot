@@ -1,1 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Обменник USDT/RUB</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; padding: 16px; background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
+        h2 { margin-top: 0; }
+        .rates { white-space: pre-line; line-height: 1.6; }
+        .admin-badge { display: inline-block; background: #34c759; color: white; padding: 2px 8px; border-radius: 8px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>📊 Курсы <span id="admin-badge"></span></h2>
+    <div id="rates" class="rates">Загрузка...</div>
 
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        fetch("/api/rates", {
+            headers: { "Authorization": tg.initData }
+        })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById("rates").innerText = data.rates_text;
+            if (data.is_admin) {
+                document.getElementById("admin-badge").innerHTML = '<span class="admin-badge">админ</span>';
+            }
+        })
+        .catch(() => {
+            document.getElementById("rates").innerText = "Не удалось загрузить курсы";
+        });
+    </script>
+</body>
+</html>
