@@ -1,12 +1,7 @@
 """
 Получение базового курса USDT/RUB с rufinex.ru.
-ВАЖНО: сейчас это заглушка - точный способ получения курса нужно уточнить
-(см. инструкцию в чате про DevTools -> Network). Как только узнаем URL API,
-здесь появится реальный запрос.
-"""
-
-"""
-Получение базового курса USDT/RUB с rufinex.ru.
+Эндпоинт подтверждён вручную через DevTools -> Network (10.07.2026):
+GET https://api.rufinex.ru/api/rates -> {"buy": "79.3", "sell": "79.8"}
 """
 
 import requests
@@ -14,7 +9,7 @@ import time
 
 _cache = {"rates": None, "fetched_at": 0}
 CACHE_TTL_SECONDS = 60  # не дёргаем rufinex чаще раза в минуту
-RUFINEX_API_URL = "https://api.rufinex.ru/api/rates"  # <- нужен настоящий адрес запроса из DevTools
+RUFINEX_API_URL = "https://api.rufinex.ru/api/rates"
 
 MARKUP_PERCENT = 5.0  # наценка сверху базового курса
 
