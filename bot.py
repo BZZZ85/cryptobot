@@ -51,9 +51,9 @@ EXCHANGE_EMOJI = {
 }
 BANNER_PATH = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
 # Постоянная клавиатура снизу экрана - видна пользователю всегда
-MAIN_KEYBOARD = ReplyKeyboardMarkup([["▶️ Старт", "🔄 Рестарт"]], resize_keyboard=True)
+MAIN_KEYBOARD = ReplyKeyboardMarkup([["▶️ Старт", "🔄 Рестарт"], ["❓ Помощь"]], resize_keyboard=True)
 ADMIN_KEYBOARD = ReplyKeyboardMarkup(
-    [["▶️ Старт", "🔄 Рестарт"], ["⚙️ Настройка"]],
+    [["▶️ Старт", "🔄 Рестарт"], ["⚙️ Настройка", "❓ Помощь"]],
     resize_keyboard=True,
 )
 
@@ -140,7 +140,20 @@ def is_admin(update: Update) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_main_menu(update, context)
 
-
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "❓ <b>Часто задаваемые вопросы</b>\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "<b>Как купить/продать USDT?</b>\n"
+        "Нажми ▶️ Старт → выбери Купить или Продать → выбери биржу → перейди по ссылке "
+        "и оформи сделку на самой бирже.\n\n"
+        "<b>Курс не совпадает с тем, что я вижу на бирже?</b>\n"
+        "Курс обновляется регулярно, но может отличаться на пару минут — актуальная цена "
+        "всегда видна прямо в объявлении на самой бирже.\n\n"
+        "<b>Проблема со сделкой или вопрос?</b>\n"
+        f"Пиши напрямую: {config.SUPPORT_CONTACT}"
+    )
+    await update.message.reply_text(text)
 async def handle_side_choice(query, side: str):
     """Показывает клиенту список бирж с ценой для выбранной стороны сделки."""
     buttons = []
@@ -614,6 +627,8 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.Text(["▶️ Старт", "🔄 Рестарт"]), show_main_menu))
     application.add_handler(MessageHandler(filters.Text(["⚙️ Настройка"]), setup))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.Text(["❓ Помощь"]), help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_setup_text))
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
