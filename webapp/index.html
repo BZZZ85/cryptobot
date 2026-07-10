@@ -9,18 +9,25 @@
         h2 { margin-top: 0; }
         .rates { white-space: pre-line; line-height: 1.6; }
         .admin-badge { display: inline-block; background: #34c759; color: white; padding: 2px 8px; border-radius: 8px; font-size: 12px; }
+        .ad-card { border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+        .ad-card input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px; border-radius: 6px; border: 1px solid #ccc; }
+        .ad-card button { margin-right: 6px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; border: none; }
     </style>
 </head>
 <body>
     <h2>📊 Курсы <span id="admin-badge"></span></h2>
     <div id="rates" class="rates">Загрузка...</div>
+    <div id="admin-panel" style="display:none; margin-top:24px;">
+    <h3>⚙️ Управление объявлениями</h3>
+    <div id="ads-list"></div>
+</div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
 
-        fetch("/api/rates", {
+       fetch("/api/rates", {
             headers: { "Authorization": tg.initData }
         })
         .then(r => r.json())
@@ -28,11 +35,72 @@
             document.getElementById("rates").innerText = data.rates_text;
             if (data.is_admin) {
                 document.getElementById("admin-badge").innerHTML = '<span class="admin-badge">админ</span>';
+                loadAdsPanel();
             }
         })
         .catch(() => {
             document.getElementById("rates").innerText = "Не удалось загрузить курсы";
         });
+
+        function loadAdsPanel() {
+            fetch("/api/admin/ads", { headers: { "Authorization": tg.initData } })
+                .then(r => r.json())
+                .then(data => {
+                    const panel = document.getElementById("admin-panel");
+                    const list = document.getElementById("ads-list");
+                    list.innerHTML = "";
+
+                    data.ads.forEach(ad => {
+                        const row = document.createElement("div");
+                        row.className = "ad-card";
+                        row.innerHTML = `
+                            <b>${ad.exchange_name} — ${ad.side === 'buy' ? 'Покупка' : 'Продажа'}</b>
+                            <input type="text" placeholder="Ссылка (пусто — не менять)" value="${ad.url || ''}" data-field="url">
+                            <input type="number" step="0.01" placeholder="Цена (пусто — не менять)" value="${ad.price ?? ''}" data-field="price">
+                            <button data-action="save">💾 Сохранить</button>
+                            <button data-action="reset">🔄 Сброс цены на авто</button>
+                            <button data-action="delete">🗑 Удалить</button>
+                        `;
+
+                        const urlInput = row.querySelector('[data-field="url"]');
+                        const priceInput = row.querySelector('[data-field="price"]');
+
+                        row.querySelector('[data-action="save"]').onclick = () => {
+                            fetch("/api/admin/ads", {
+                                method: "POST",
+                                headers: { "Authorization": tg.initData, "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    exchange: ad.exchange,
+                                    side: ad.side,
+                                    url: urlInput.value || null,
+                                    price: priceInput.value ? parseFloat(priceInput.value) : null,
+                                }),
+                            }).then(() => tg.HapticFeedback.notificationOccurred("success"));
+                        };
+
+                        row.querySelector('[data-action="reset"]').onclick = () => {
+                            fetch("/api/admin/ads/reset_price", {
+                                method: "POST",
+                                headers: { "Authorization": tg.initData, "Content-Type": "application/json" },
+                                body: JSON.stringify({ exchange: ad.exchange, side: ad.side }),
+                            }).then(loadAdsPanel);
+                        };
+
+                        row.querySelector('[data-action="delete"]').onclick = () => {
+                            if (!confirm("Удалить объявление?")) return;
+                            fetch("/api/admin/ads/delete", {
+                                method: "POST",
+                                headers: { "Authorization": tg.initData, "Content-Type": "application/json" },
+                                body: JSON.stringify({ exchange: ad.exchange, side: ad.side }),
+                            }).then(loadAdsPanel);
+                        };
+
+                        list.appendChild(row);
+                    });
+
+                    panel.style.display = "block";
+                });
+        }
     </script>
 </body>
 </html>
