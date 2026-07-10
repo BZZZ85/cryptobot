@@ -33,6 +33,7 @@ from telegram.ext import (
 
 import config
 import storage
+import rufinex_client
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -602,7 +603,13 @@ async def check_new_orders(context: ContextTypes.DEFAULT_TYPE):
             )
             for admin_id in config.ADMIN_CHAT_IDS:
                 await context.bot.send_message(chat_id=admin_id, text=text)
-
+async def record_rate_history(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        rates = rufinex_client.fetch_base_rates()
+        if rates:
+            storage.record_rate_snapshot(rates["buy"], rates["sell"])
+    except Exception as e:
+        logger.error(f"Не удалось сохранить историю курса: {e}")
 # ---------------------------------------------------------------------------
 # ЗАПУСК
 # ---------------------------------------------------------------------------
@@ -632,6 +639,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_setup_text))
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
+    application.job_queue.run_repeating(record_rate_history, interval=300, first=15)
 
     print("Мультибиржевый P2P-бот запущен! Ctrl+C для остановки.")
     application.run_polling()
