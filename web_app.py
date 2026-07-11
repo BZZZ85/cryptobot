@@ -37,7 +37,8 @@ async def api_rates(authorization: str = Header(default="")):
     user = get_user(authorization)
     is_admin = user.get("id") in config.ADMIN_CHAT_IDS
     text = await build_rates_text()
-    return {"rates_text": text, "is_admin": is_admin}
+    age = rufinex_client.get_cache_age_seconds()
+    return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age}
 
 class AdUpdate(BaseModel):
     exchange: str
