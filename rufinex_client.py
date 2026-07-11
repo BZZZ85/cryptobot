@@ -54,3 +54,8 @@ def compute_price_with_markup(side: str) -> float | None:
     if base is None:
         return None
     return round(base * (1 + MARKUP_PERCENT / 100), 2)
+def get_cache_age_seconds() -> int | None:
+    """Сколько секунд назад в последний раз реально обновлялся курс. None, если ещё не запрашивали."""
+    if not _cache["rates"]:
+        return None
+    return int(time.time() - _cache["fetched_at"])
