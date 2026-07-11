@@ -12,7 +12,7 @@ import webapp_auth
 from bot import build_rates_text, EXCHANGES  # переиспользуем ту же логику и список бирж, что и в боте  # переиспользуем ту же логику, что и в боте
 from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel
-
+import requests
 import storage
 
 app = FastAPI()
