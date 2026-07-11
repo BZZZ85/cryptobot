@@ -8,26 +8,65 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; }
+
   body {
-    
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: var(--tg-theme-text-color, #000);
-    background: var(--tg-theme-bg-color, #fff);
     min-height: 100vh;
-    padding: 16px;
-    transition: background .2s, color .2s;
+    padding: 16px 16px 90px;
+    transition: background .3s, color .2s;
   }
+  body.theme-dark {
+    background: radial-gradient(circle at 20% 0%, #2b3f6b 0%, transparent 45%),
+                radial-gradient(circle at 100% 30%, #3a2b6b 0%, transparent 40%),
+                #10131c;
+  }
+  body.theme-light {
+    background: radial-gradient(circle at 20% 0%, #dbe7ff 0%, transparent 45%),
+                radial-gradient(circle at 100% 30%, #ece1ff 0%, transparent 40%),
+                #f4f6fb;
+  }
+
   h2, h3 { margin: 0 0 12px; }
-  .admin-badge { display: inline-block; background: linear-gradient(135deg,#34c759,#0a8a3f); color: white; padding: 2px 10px; border-radius: 10px; font-size: 11px; vertical-align: middle; }
+  .hidden { display: none !important; }
+
+  /* Статус-бейдж */
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(52,199,89,0.15); color: #34c759;
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .status-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #34c759; }
+  .admin-badge { display: inline-block; background: linear-gradient(135deg,#34c759,#0a8a3f); color: white; padding: 2px 10px; border-radius: 10px; font-size: 11px; vertical-align: middle; margin-left: 6px; }
+
+  /* Карточки */
   .card {
     background: var(--tg-theme-secondary-bg-color, rgba(128,128,128,0.08));
     border: 1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.15));
     border-radius: 16px;
     padding: 16px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
-  .rates { white-space: pre-line; line-height: 1.7; font-size: 14px; }
+  .rate-card {
+    background: var(--tg-theme-secondary-bg-color, rgba(128,128,128,0.08));
+    border: 1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.15));
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .rate-card .top-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .rate-card img { width: 30px; height: 30px; border-radius: 7px; object-fit: contain; background: rgba(255,255,255,0.9); }
+  .rate-card .ex-name { font-weight: 700; font-size: 15px; }
+  .rate-card .prices { display: flex; gap: 10px; }
+  .price-box { flex: 1; border-radius: 12px; padding: 10px; text-align: center; }
+  .price-box.buy { background: rgba(52,199,89,0.12); }
+  .price-box.sell { background: rgba(255,69,58,0.12); }
+  .price-box .label { font-size: 11px; opacity: 0.7; margin-bottom: 2px; }
+  .price-box .value { font-size: 18px; font-weight: 700; }
+
+  /* Кнопки */
   .btn {
     display: block; width: 100%; border: none; border-radius: 12px;
     padding: 14px; font-size: 15px; font-weight: 600; color: white;
@@ -38,6 +77,7 @@
   .btn-primary { background: linear-gradient(135deg,#0a84ff,#0050c8); }
   .btn-danger  { background: linear-gradient(135deg,#ff453a,#a30f0f); }
   .btn-ghost   { background: var(--tg-theme-secondary-bg-color, rgba(128,128,128,0.12)); color: var(--tg-theme-text-color, #000); }
+
   .exchange-row {
     display: flex; align-items: center; gap: 12px;
     background: var(--tg-theme-secondary-bg-color, rgba(128,128,128,0.08)); border-radius: 14px; padding: 10px 14px;
@@ -48,18 +88,21 @@
   .exchange-row .info { flex: 1; }
   .exchange-row .name { font-weight: 600; }
   .exchange-row .price { font-size: 13px; opacity: 0.75; }
+
   .ad-card input { width: 100%; margin: 6px 0; padding: 10px; border-radius: 8px; border: 1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.2)); background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
-  .ad-card button { margin-right: 6px; margin-top: 6px; padding: 8px 12px; border-radius: 8px; border: none; }
-  .hidden { display: none !important; }
-  #toast-box { position: fixed; bottom: 20px; left: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+  .ad-card button { margin-right: 6px; margin-top: 6px; padding: 8px 12px; border-radius: 8px; border: none; color: white; }
+
+  #toast-box { position: fixed; bottom: 90px; left: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
   .toast { background: rgba(20,20,25,0.95); color: white; padding: 12px 16px; border-radius: 12px; font-size: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); animation: slideUp .25s ease-out; }
   @keyframes slideUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
+
   #loader-overlay {
     position: fixed; inset: 0; z-index: 9999;
     display: flex; align-items: center; justify-content: center;
-    background: var(--tg-theme-bg-color, #fff);
     transition: opacity .3s ease;
   }
+  body.theme-dark #loader-overlay { background: #10131c; }
+  body.theme-light #loader-overlay { background: #f4f6fb; }
   #loader-overlay.hide { opacity: 0; pointer-events: none; }
   .spinner-ring {
     width: 56px; height: 56px;
@@ -67,66 +110,95 @@
     border-top-color: var(--tg-theme-button-color, #0a84ff);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
-    position: relative;
     display: flex; align-items: center; justify-content: center;
   }
   .spinner-ring img { width: 30px; height: 30px; border-radius: 50%; object-fit: contain; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Нижняя навигация */
+  #tab-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+    display: flex; justify-content: space-around;
+    background: var(--tg-theme-secondary-bg-color, rgba(20,20,25,0.95));
+    border-top: 1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.15));
+    padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
+    backdrop-filter: blur(10px);
+  }
+  .tab-btn {
+    flex: 1; background: none; border: none; padding: 6px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--tg-theme-hint-color, #999); font-size: 11px; cursor: pointer;
+  }
+  .tab-btn .icon { font-size: 20px; }
+  .tab-btn.active { color: var(--tg-theme-button-color, #0a84ff); }
 </style>
 </head>
 <body>
+
 <div id="loader-overlay">
-  <div class="spinner-ring">
-    <img src="/webapp-logo.png" onerror="this.style.display='none'">
-  </div>
+  <div class="spinner-ring"><img src="/webapp-logo.png" onerror="this.style.display='none'"></div>
 </div>
 <div id="toast-box"></div>
 
-<!-- Экран 1: главное меню -->
-<div id="screen-main">
-  <h2>📊 Курсы <span id="admin-badge"></span></h2>
-  <div class="card"><div id="rates" class="rates">Загрузка...</div></div>
-
-  <button class="btn btn-success" onclick="openExchangeList('buy')">💵 Купить USDT</button>
-  <button class="btn btn-primary" onclick="openExchangeList('sell')">💰 Продать USDT</button>
+<!-- ВКЛАДКА: Главная -->
+<div id="view-home" class="view">
+  <div class="status-badge"><span class="dot"></span><span id="status-text">Загрузка...</span> <span id="admin-badge"></span></div>
+  <h2>📊 Курсы</h2>
+  <div id="rate-cards"></div>
 </div>
 
-<!-- Экран 2: список бирж -->
-<div id="screen-exchanges" class="hidden">
-  <h3 id="exchanges-title">Выбери биржу</h3>
-  <div id="exchanges-list"></div>
-  <button class="btn btn-ghost" onclick="showScreen('screen-main')">⬅️ Назад</button>
-</div>
-
-<!-- Экран 3: сумма -->
-<div id="screen-amount" class="hidden">
-  <h3>Какую сумму?</h3>
-  <div class="card">
-    <input type="text" id="amount-input" placeholder="Например: 10000 ₽ или 100 USDT" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.2));background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
+<!-- ВКЛАДКА: Обмен -->
+<div id="view-exchange" class="view hidden">
+  <div id="ex-screen-select">
+    <h2>💱 Обмен</h2>
+    <button class="btn btn-success" onclick="openExchangeList('buy')">💵 Купить USDT</button>
+    <button class="btn btn-primary" onclick="openExchangeList('sell')">💰 Продать USDT</button>
   </div>
-  <button class="btn btn-success" onclick="submitAmount()">Продолжить</button>
-  <button class="btn btn-ghost" onclick="submitAmount(true)">Пропустить</button>
-  <button class="btn btn-ghost" onclick="showScreen('screen-exchanges')">⬅️ Назад</button>
+
+  <div id="ex-screen-list" class="hidden">
+    <h3 id="exchanges-title">Выбери биржу</h3>
+    <div id="exchanges-list"></div>
+    <button class="btn btn-ghost" onclick="showExSub('ex-screen-select')">⬅️ Назад</button>
+  </div>
+
+  <div id="ex-screen-amount" class="hidden">
+    <h3>Какую сумму?</h3>
+    <div class="card">
+      <input type="text" id="amount-input" placeholder="Например: 10000 ₽ или 100 USDT" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.2));background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
+    </div>
+    <button class="btn btn-success" onclick="submitAmount()">Продолжить</button>
+    <button class="btn btn-ghost" onclick="submitAmount(true)">Пропустить</button>
+    <button class="btn btn-ghost" onclick="showExSub('ex-screen-list')">⬅️ Назад</button>
+  </div>
+
+  <div id="ex-screen-result" class="hidden">
+    <div class="card" id="result-card"></div>
+    <a id="result-link" class="btn btn-success" style="text-align:center;text-decoration:none;" target="_blank">Открыть сделку ↗</a>
+    <button class="btn btn-ghost" onclick="showExSub('ex-screen-select')">⬅️ В начало</button>
+  </div>
 </div>
 
-<!-- Экран 4: результат -->
-<div id="screen-result" class="hidden">
-  <div class="card" id="result-card"></div>
-  <a id="result-link" class="btn btn-success" style="text-align:center;text-decoration:none;" target="_blank">Открыть сделку ↗</a>
-  <button class="btn btn-ghost" onclick="showScreen('screen-main')">⬅️ В начало</button>
-</div>
-
-<!-- Админ-панель -->
-<div id="admin-panel" class="hidden" style="margin-top:24px;">
-  <h3>⚙️ Управление объявлениями</h3>
+<!-- ВКЛАДКА: Объявления (админ) -->
+<div id="view-ads" class="view hidden">
+  <h2>⚙️ Объявления</h2>
   <div id="ads-list"></div>
+</div>
 
-  <div id="charts-panel" style="margin-top:16px;">
-    <h3>📈 Курс за 24 часа</h3>
-    <div class="card"><canvas id="rateChart" height="180"></canvas></div>
-    <h3>📊 Клики за 7 дней</h3>
-    <div class="card"><canvas id="clickChart" height="180"></canvas></div>
-  </div>
+<!-- ВКЛАДКА: Графики (админ) -->
+<div id="view-charts" class="view hidden">
+  <h2>📈 Графики</h2>
+  <h3>Курс за 24 часа</h3>
+  <div class="card"><canvas id="rateChart" height="180"></canvas></div>
+  <h3>Клики за 7 дней</h3>
+  <div class="card"><canvas id="clickChart" height="180"></canvas></div>
+</div>
+
+<!-- Нижняя навигация -->
+<div id="tab-bar">
+  <button class="tab-btn active" data-view="view-home" onclick="showView('view-home')"><span class="icon">🏠</span>Главная</button>
+  <button class="tab-btn" data-view="view-exchange" onclick="showView('view-exchange')"><span class="icon">💱</span>Обмен</button>
+  <button class="tab-btn admin-only hidden" data-view="view-ads" onclick="showView('view-ads')"><span class="icon">⚙️</span>Объявления</button>
+  <button class="tab-btn admin-only hidden" data-view="view-charts" onclick="showView('view-charts')"><span class="icon">📈</span>Графики</button>
 </div>
 
 <script>
@@ -134,18 +206,17 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// На некоторых клиентах Telegram CSS-переменные темы подставляются не полностью -
-// явно проставляем цвета сами, с запасными вариантами на случай отсутствия данных.
 function applyTheme() {
     const p = tg.themeParams || {};
     const isDark = tg.colorScheme === "dark";
     const root = document.documentElement.style;
-    root.setProperty("--tg-theme-bg-color", p.bg_color || (isDark ? "#17212b" : "#ffffff"));
     root.setProperty("--tg-theme-text-color", p.text_color || (isDark ? "#f5f5f5" : "#000000"));
     root.setProperty("--tg-theme-hint-color", p.hint_color || (isDark ? "#708499" : "#999999"));
-    root.setProperty("--tg-theme-secondary-bg-color", p.secondary_bg_color || (isDark ? "#232e3c" : "#f0f0f0"));
+    root.setProperty("--tg-theme-secondary-bg-color", p.secondary_bg_color || (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"));
     root.setProperty("--tg-theme-button-color", p.button_color || "#0a84ff");
     root.setProperty("--tg-theme-button-text-color", p.button_text_color || "#ffffff");
+    document.body.classList.toggle("theme-dark", isDark);
+    document.body.classList.toggle("theme-light", !isDark);
 }
 applyTheme();
 tg.onEvent("themeChanged", applyTheme);
@@ -161,12 +232,6 @@ function toast(msg) {
   setTimeout(() => el.remove(), 3000);
 }
 
-function showScreen(id) {
-  ["screen-main","screen-exchanges","screen-amount","screen-result"].forEach(s => {
-    document.getElementById(s).classList.toggle("hidden", s !== id);
-  });
-}
-
 function apiFetch(url, options = {}) {
   options.headers = Object.assign({ "Authorization": tg.initData }, options.headers || {});
   return fetch(url, options).then(async r => {
@@ -175,21 +240,79 @@ function apiFetch(url, options = {}) {
   });
 }
 
-// --- Главный экран: курсы ---
+// --- Навигация по вкладкам ---
+function showView(id) {
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("hidden", v.id !== id));
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.view === id));
+  tg.HapticFeedback.impactOccurred("light");
+}
+
+// --- Навигация внутри вкладки "Обмен" ---
+function showExSub(id) {
+  ["ex-screen-select","ex-screen-list","ex-screen-amount","ex-screen-result"].forEach(s => {
+    document.getElementById(s).classList.toggle("hidden", s !== id);
+  });
+}
+
+function formatAge(seconds) {
+  if (seconds === null || seconds === undefined) return "нет данных";
+  if (seconds < 90) return "только что";
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} мин назад`;
+}
+
+// --- Главная: курсы ---
 apiFetch("/api/rates").then(data => {
-  document.getElementById("rates").innerText = data.rates_text;
+  document.getElementById("status-text").innerText = "Курс обновлён: " + formatAge(data.rate_age_seconds);
+
   if (data.is_admin) {
     document.getElementById("admin-badge").innerHTML = '<span class="admin-badge">админ</span>';
-    document.getElementById("admin-panel").classList.remove("hidden");
+    document.querySelectorAll(".admin-only").forEach(el => el.classList.remove("hidden"));
     loadAdsPanel();
     loadCharts();
   }
+
+  loadRateCards();
 }).catch(() => {
-  document.getElementById("rates").innerText = "Не удалось загрузить курсы";
+  document.getElementById("status-text").innerText = "Не удалось загрузить курсы";
 }).finally(() => {
   document.getElementById("loader-overlay").classList.add("hide");
   setTimeout(() => document.getElementById("loader-overlay").remove(), 300);
 });
+
+function loadRateCards() {
+  Promise.all([
+    apiFetch("/api/client/exchanges?side=buy"),
+    apiFetch("/api/client/exchanges?side=sell"),
+  ]).then(([buyData, sellData]) => {
+    const byKey = {};
+    buyData.exchanges.forEach(ex => { byKey[ex.key] = { name: ex.name, logo: ex.logo, buy: ex.price }; });
+    sellData.exchanges.forEach(ex => {
+      byKey[ex.key] = byKey[ex.key] || { name: ex.name, logo: ex.logo };
+      byKey[ex.key].sell = ex.price;
+    });
+
+    const container = document.getElementById("rate-cards");
+    container.innerHTML = "";
+    Object.entries(byKey).forEach(([key, ex]) => {
+      const card = document.createElement("div");
+      card.className = "rate-card";
+      card.innerHTML = `
+        <div class="top-row">
+          <img src="${ex.logo}" onerror="this.style.display='none'">
+          <div class="ex-name">${ex.name}</div>
+        </div>
+        <div class="prices">
+          <div class="price-box buy"><div class="label">Купить</div><div class="value">${ex.buy ? ex.buy.toFixed(2)+' ₽' : '—'}</div></div>
+          <div class="price-box sell"><div class="label">Продать</div><div class="value">${ex.sell ? ex.sell.toFixed(2)+' ₽' : '—'}</div></div>
+        </div>
+      `;
+      card.onclick = () => showView("view-exchange");
+      container.appendChild(card);
+    });
+    if (!Object.keys(byKey).length) container.innerHTML = '<div class="card">Пока нет доступных объявлений.</div>';
+  });
+}
 
 // --- Клиентский флоу ---
 function openExchangeList(side) {
@@ -197,7 +320,7 @@ function openExchangeList(side) {
   document.getElementById("exchanges-title").innerText = side === "buy" ? "Купить USDT — выбери биржу" : "Продать USDT — выбери биржу";
   const list = document.getElementById("exchanges-list");
   list.innerHTML = "Загрузка...";
-  showScreen("screen-exchanges");
+  showExSub("ex-screen-list");
 
   apiFetch(`/api/client/exchanges?side=${side}`).then(data => {
     if (!data.exchanges.length) { list.innerHTML = "Пока нет доступных объявлений."; return; }
@@ -213,7 +336,7 @@ function openExchangeList(side) {
         </div>
         <div>➜</div>
       `;
-      row.onclick = () => { window.selectedExchange = ex.key; showScreen("screen-amount"); };
+      row.onclick = () => { window.selectedExchange = ex.key; showExSub("ex-screen-amount"); tg.HapticFeedback.impactOccurred("light"); };
       list.appendChild(row);
     });
   }).catch(e => { list.innerHTML = "Ошибка: " + e.message; });
@@ -232,12 +355,12 @@ function submitAmount(skip = false) {
       ${amount ? '💵 Сумма: ' + amount + '<br>' : ''}
     `;
     document.getElementById("result-link").href = data.link;
-    showScreen("screen-result");
+    showExSub("ex-screen-result");
     tg.HapticFeedback.notificationOccurred("success");
   }).catch(e => toast("Ошибка: " + e.message));
 }
 
-// --- Админ-панель: объявления ---
+// --- Админ: объявления ---
 function loadAdsPanel() {
   apiFetch("/api/admin/ads").then(data => {
     const list = document.getElementById("ads-list");
@@ -249,9 +372,9 @@ function loadAdsPanel() {
         <b>${ad.exchange_name} — ${ad.side === 'buy' ? 'Покупка' : 'Продажа'}</b>
         <input type="text" placeholder="Ссылка (пусто — не менять)" value="${ad.url || ''}" data-field="url">
         <input type="number" step="0.01" placeholder="Цена (пусто — не менять)" value="${ad.price ?? ''}" data-field="price">
-        <button class="btn-success" style="border-radius:8px;color:white;border:none;padding:8px 12px;" data-action="save">💾 Сохранить</button>
-        <button class="btn-primary" style="border-radius:8px;color:white;border:none;padding:8px 12px;" data-action="reset">🔄 Авто-цена</button>
-        <button class="btn-danger" style="border-radius:8px;color:white;border:none;padding:8px 12px;" data-action="delete">🗑 Удалить</button>
+        <button class="btn-success" data-action="save">💾 Сохранить</button>
+        <button class="btn-primary" data-action="reset">🔄 Авто-цена</button>
+        <button class="btn-danger" data-action="delete">🗑 Удалить</button>
       `;
       const urlInput = row.querySelector('[data-field="url"]');
       const priceInput = row.querySelector('[data-field="price"]');
@@ -276,6 +399,7 @@ function loadAdsPanel() {
   });
 }
 
+// --- Админ: графики ---
 function loadCharts() {
   apiFetch("/api/admin/rate_history?hours=24").then(data => {
     const labels = data.history.map(h => new Date(h.recorded_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
@@ -285,14 +409,14 @@ function loadCharts() {
         { label: "Покупка", data: data.history.map(h => h.buy), borderColor: "#34c759", tension: 0.3 },
         { label: "Продажа", data: data.history.map(h => h.sell), borderColor: "#ff453a", tension: 0.3 },
       ]},
-      options: { plugins: { legend: { labels: { color: "#ccc" } } }, scales: { x: { ticks: { color: "#ccc" } }, y: { ticks: { color: "#ccc" } } } },
+      options: { plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
     });
   });
   apiFetch("/api/admin/click_history?days=7").then(data => {
     new Chart(document.getElementById("clickChart"), {
       type: "bar",
       data: { labels: data.history.map(h => h.day), datasets: [{ label: "Клики", data: data.history.map(h => h.count), backgroundColor: "#0a84ff" }] },
-      options: { plugins: { legend: { labels: { color: "#ccc" } } }, scales: { x: { ticks: { color: "#ccc" } }, y: { ticks: { color: "#ccc" } } } },
+      options: { plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
     });
   });
 }
