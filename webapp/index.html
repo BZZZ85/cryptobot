@@ -135,6 +135,22 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+// На некоторых клиентах Telegram CSS-переменные темы подставляются не полностью -
+// явно проставляем цвета сами, с запасными вариантами на случай отсутствия данных.
+function applyTheme() {
+    const p = tg.themeParams || {};
+    const isDark = tg.colorScheme === "dark";
+    const root = document.documentElement.style;
+    root.setProperty("--tg-theme-bg-color", p.bg_color || (isDark ? "#17212b" : "#ffffff"));
+    root.setProperty("--tg-theme-text-color", p.text_color || (isDark ? "#f5f5f5" : "#000000"));
+    root.setProperty("--tg-theme-hint-color", p.hint_color || (isDark ? "#708499" : "#999999"));
+    root.setProperty("--tg-theme-secondary-bg-color", p.secondary_bg_color || (isDark ? "#232e3c" : "#f0f0f0"));
+    root.setProperty("--tg-theme-button-color", p.button_color || "#0a84ff");
+    root.setProperty("--tg-theme-button-text-color", p.button_text_color || "#ffffff");
+}
+applyTheme();
+tg.onEvent("themeChanged", applyTheme);
+
 let currentSide = null;
 
 function toast(msg) {
