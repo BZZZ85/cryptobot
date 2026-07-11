@@ -1,149 +1,259 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Обменник USDT/RUB</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-    <style>
-        body { font-family: -apple-system, sans-serif; padding: 16px; background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
-        h2 { margin-top: 0; }
-        .rates { white-space: pre-line; line-height: 1.6; }
-        .admin-badge { display: inline-block; background: #34c759; color: white; padding: 2px 8px; border-radius: 8px; font-size: 12px; }
-        .ad-card { border: 1px solid var(--tg-theme-hint-color, #ccc); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-        .ad-card input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px; border-radius: 6px; border: 1px solid #ccc; }
-        .ad-card button { margin-right: 6px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; border: none; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Обменник USDT/RUB</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--tg-theme-text-color, #fff);
+    background: radial-gradient(circle at 20% 0%, #2b3f6b 0%, transparent 45%),
+                radial-gradient(circle at 100% 30%, #3a2b6b 0%, transparent 40%),
+                var(--tg-theme-bg-color, #10131c);
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h2, h3 { margin: 0 0 12px; }
+  .admin-badge { display: inline-block; background: linear-gradient(135deg,#34c759,#0a8a3f); color: white; padding: 2px 10px; border-radius: 10px; font-size: 11px; vertical-align: middle; }
+  .card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .rates { white-space: pre-line; line-height: 1.7; font-size: 14px; }
+  .btn {
+    display: block; width: 100%; border: none; border-radius: 12px;
+    padding: 14px; font-size: 15px; font-weight: 600; color: white;
+    margin-bottom: 10px; cursor: pointer; transition: transform .1s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-success { background: linear-gradient(135deg,#34c759,#0a8a3f); }
+  .btn-primary { background: linear-gradient(135deg,#0a84ff,#0050c8); }
+  .btn-danger  { background: linear-gradient(135deg,#ff453a,#a30f0f); }
+  .btn-ghost   { background: rgba(255,255,255,0.08); color: var(--tg-theme-text-color, #fff); }
+  .exchange-row {
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(255,255,255,0.06); border-radius: 14px; padding: 10px 14px;
+    margin-bottom: 10px; cursor: pointer; transition: background .15s;
+  }
+  .exchange-row:active { background: rgba(255,255,255,0.14); }
+  .exchange-row img { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; background: rgba(255,255,255,0.9); }
+  .exchange-row .info { flex: 1; }
+  .exchange-row .name { font-weight: 600; }
+  .exchange-row .price { font-size: 13px; opacity: 0.75; }
+  .ad-card input { width: 100%; margin: 6px 0; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: inherit; }
+  .ad-card button { margin-right: 6px; margin-top: 6px; padding: 8px 12px; border-radius: 8px; border: none; }
+  .hidden { display: none !important; }
+  #toast-box { position: fixed; bottom: 20px; left: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+  .toast { background: rgba(20,20,25,0.95); color: white; padding: 12px 16px; border-radius: 12px; font-size: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); animation: slideUp .25s ease-out; }
+  @keyframes slideUp { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
+</style>
 </head>
 <body>
-    <h2>📊 Курсы <span id="admin-badge"></span></h2>
-    <div id="rates" class="rates">Загрузка...</div>
-    <div id="admin-panel" style="display:none; margin-top:24px;">
-    <h3>⚙️ Управление объявлениями</h3>
-    <div id="ads-list"></div>
+
+<div id="toast-box"></div>
+
+<!-- Экран 1: главное меню -->
+<div id="screen-main">
+  <h2>📊 Курсы <span id="admin-badge"></span></h2>
+  <div class="card"><div id="rates" class="rates">Загрузка...</div></div>
+
+  <button class="btn btn-success" onclick="openExchangeList('buy')">💵 Купить USDT</button>
+  <button class="btn btn-primary" onclick="openExchangeList('sell')">💰 Продать USDT</button>
 </div>
-    <div id="charts-panel" style="display:none; margin-top:24px;">
+
+<!-- Экран 2: список бирж -->
+<div id="screen-exchanges" class="hidden">
+  <h3 id="exchanges-title">Выбери биржу</h3>
+  <div id="exchanges-list"></div>
+  <button class="btn btn-ghost" onclick="showScreen('screen-main')">⬅️ Назад</button>
+</div>
+
+<!-- Экран 3: сумма -->
+<div id="screen-amount" class="hidden">
+  <h3>Какую сумму?</h3>
+  <div class="card">
+    <input type="text" id="amount-input" placeholder="Например: 10000 ₽ или 100 USDT" style="width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:inherit;">
+  </div>
+  <button class="btn btn-success" onclick="submitAmount()">Продолжить</button>
+  <button class="btn btn-ghost" onclick="submitAmount(true)">Пропустить</button>
+  <button class="btn btn-ghost" onclick="showScreen('screen-exchanges')">⬅️ Назад</button>
+</div>
+
+<!-- Экран 4: результат -->
+<div id="screen-result" class="hidden">
+  <div class="card" id="result-card"></div>
+  <a id="result-link" class="btn btn-success" style="text-align:center;text-decoration:none;" target="_blank">Открыть сделку ↗</a>
+  <button class="btn btn-ghost" onclick="showScreen('screen-main')">⬅️ В начало</button>
+</div>
+
+<!-- Админ-панель -->
+<div id="admin-panel" class="hidden" style="margin-top:24px;">
+  <h3>⚙️ Управление объявлениями</h3>
+  <div id="ads-list"></div>
+
+  <div id="charts-panel" style="margin-top:16px;">
     <h3>📈 Курс за 24 часа</h3>
-    <canvas id="rateChart" height="180"></canvas>
-
+    <div class="card"><canvas id="rateChart" height="180"></canvas></div>
     <h3>📊 Клики за 7 дней</h3>
-    <canvas id="clickChart" height="180"></canvas>
+    <div class="card"><canvas id="clickChart" height="180"></canvas></div>
+  </div>
 </div>
 
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
 
-       fetch("/api/rates", {
-            headers: { "Authorization": tg.initData }
-        })
-        .then(r => r.json())
-        .then(data => {
-            document.getElementById("rates").innerHTML = data.rates_text;
-            if (data.is_admin) {
-                document.getElementById("admin-badge").innerHTML = '<span class="admin-badge">админ</span>';
-                loadAdsPanel();
-            }
-        })
-        .catch(() => {
-            document.getElementById("rates").innerText = "Не удалось загрузить курсы";
-        });
+let currentSide = null;
 
-        function loadAdsPanel() {
-            fetch("/api/admin/ads", { headers: { "Authorization": tg.initData } })
-                .then(r => r.json())
-                .then(data => {
-                    const panel = document.getElementById("admin-panel");
-                    const list = document.getElementById("ads-list");
-                    list.innerHTML = "";
+function toast(msg) {
+  const box = document.getElementById("toast-box");
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerText = msg;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
 
-                    data.ads.forEach(ad => {
-                        const row = document.createElement("div");
-                        row.className = "ad-card";
-                        row.innerHTML = `
-                            <b>${ad.exchange_name} — ${ad.side === 'buy' ? 'Покупка' : 'Продажа'}</b>
-                            <input type="text" placeholder="Ссылка (пусто — не менять)" value="${ad.url || ''}" data-field="url">
-                            <input type="number" step="0.01" placeholder="Цена (пусто — не менять)" value="${ad.price ?? ''}" data-field="price">
-                            <button data-action="save">💾 Сохранить</button>
-                            <button data-action="reset">🔄 Сброс цены на авто</button>
-                            <button data-action="delete">🗑 Удалить</button>
-                        `;
+function showScreen(id) {
+  ["screen-main","screen-exchanges","screen-amount","screen-result"].forEach(s => {
+    document.getElementById(s).classList.toggle("hidden", s !== id);
+  });
+}
 
-                        const urlInput = row.querySelector('[data-field="url"]');
-                        const priceInput = row.querySelector('[data-field="price"]');
+function apiFetch(url, options = {}) {
+  options.headers = Object.assign({ "Authorization": tg.initData }, options.headers || {});
+  return fetch(url, options).then(async r => {
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || "Ошибка запроса"); }
+    return r.json();
+  });
+}
 
-                        row.querySelector('[data-action="save"]').onclick = () => {
-                            fetch("/api/admin/ads", {
-                                method: "POST",
-                                headers: { "Authorization": tg.initData, "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                    exchange: ad.exchange,
-                                    side: ad.side,
-                                    url: urlInput.value || null,
-                                    price: priceInput.value ? parseFloat(priceInput.value) : null,
-                                }),
-                            }).then(() => tg.HapticFeedback.notificationOccurred("success"));
-                        };
+// --- Главный экран: курсы ---
+apiFetch("/api/rates").then(data => {
+  document.getElementById("rates").innerText = data.rates_text;
+  if (data.is_admin) {
+    document.getElementById("admin-badge").innerHTML = '<span class="admin-badge">админ</span>';
+    document.getElementById("admin-panel").classList.remove("hidden");
+    loadAdsPanel();
+    loadCharts();
+  }
+}).catch(() => { document.getElementById("rates").innerText = "Не удалось загрузить курсы"; });
 
-                        row.querySelector('[data-action="reset"]').onclick = () => {
-                            fetch("/api/admin/ads/reset_price", {
-                                method: "POST",
-                                headers: { "Authorization": tg.initData, "Content-Type": "application/json" },
-                                body: JSON.stringify({ exchange: ad.exchange, side: ad.side }),
-                            }).then(loadAdsPanel);
-                        };
+// --- Клиентский флоу ---
+function openExchangeList(side) {
+  currentSide = side;
+  document.getElementById("exchanges-title").innerText = side === "buy" ? "Купить USDT — выбери биржу" : "Продать USDT — выбери биржу";
+  const list = document.getElementById("exchanges-list");
+  list.innerHTML = "Загрузка...";
+  showScreen("screen-exchanges");
 
-                        row.querySelector('[data-action="delete"]').onclick = () => {
-                            if (!confirm("Удалить объявление?")) return;
-                            fetch("/api/admin/ads/delete", {
-                                method: "POST",
-                                headers: { "Authorization": tg.initData, "Content-Type": "application/json" },
-                                body: JSON.stringify({ exchange: ad.exchange, side: ad.side }),
-                            }).then(loadAdsPanel);
-                        };
+  apiFetch(`/api/client/exchanges?side=${side}`).then(data => {
+    if (!data.exchanges.length) { list.innerHTML = "Пока нет доступных объявлений."; return; }
+    list.innerHTML = "";
+    data.exchanges.forEach(ex => {
+      const row = document.createElement("div");
+      row.className = "exchange-row";
+      row.innerHTML = `
+        <img src="${ex.logo}" onerror="this.style.display='none'">
+        <div class="info">
+          <div class="name">${ex.name}</div>
+          <div class="price">${ex.price ? '~' + ex.price.toFixed(2) + ' ₽' : ''}</div>
+        </div>
+        <div>➜</div>
+      `;
+      row.onclick = () => { window.selectedExchange = ex.key; showScreen("screen-amount"); };
+      list.appendChild(row);
+    });
+  }).catch(e => { list.innerHTML = "Ошибка: " + e.message; });
+}
 
-                        list.appendChild(row);
-                    });
+function submitAmount(skip = false) {
+  const amount = skip ? null : (document.getElementById("amount-input").value.trim() || null);
+  apiFetch("/api/client/deliver", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ exchange: window.selectedExchange, side: currentSide, amount }),
+  }).then(data => {
+    document.getElementById("result-card").innerHTML = `
+      <b>${currentSide === 'buy' ? 'Купить' : 'Продать'} USDT/RUB на ${data.exchange_name}</b><br>
+      ${data.price ? '💱 Цена: ' + data.price.toFixed(2) + ' ₽<br>' : ''}
+      ${amount ? '💵 Сумма: ' + amount + '<br>' : ''}
+    `;
+    document.getElementById("result-link").href = data.link;
+    showScreen("screen-result");
+    tg.HapticFeedback.notificationOccurred("success");
+  }).catch(e => toast("Ошибка: " + e.message));
+}
 
-                    panel.style.display = "block";
-                    panel.style.display = "block";
-                    loadCharts();
-                });
-        }
-        function loadCharts() {
-            document.getElementById("charts-panel").style.display = "block";
+// --- Админ-панель: объявления ---
+function loadAdsPanel() {
+  apiFetch("/api/admin/ads").then(data => {
+    const list = document.getElementById("ads-list");
+    list.innerHTML = "";
+    data.ads.forEach(ad => {
+      const row = document.createElement("div");
+      row.className = "card ad-card";
+      row.innerHTML = `
+        <b>${ad.exchange_name} — ${ad.side === 'buy' ? 'Покупка' : 'Продажа'}</b>
+        <input type="text" placeholder="Ссылка (пусто — не менять)" value="${ad.url || ''}" data-field="url">
+        <input type="number" step="0.01" placeholder="Цена (пусто — не менять)" value="${ad.price ?? ''}" data-field="price">
+        <button class="btn-success" style="border-radius:8px;color:white;border:none;padding:8px 12px;" data-action="save">💾 Сохранить</button>
+        <button class="btn-primary" style="border-radius:8px;color:white;border:none;padding:8px 12px;" data-action="reset">🔄 Авто-цена</button>
+        <button class="btn-danger" style="border-radius:8px;color:white;border:none;padding:8px 12px;" data-action="delete">🗑 Удалить</button>
+      `;
+      const urlInput = row.querySelector('[data-field="url"]');
+      const priceInput = row.querySelector('[data-field="price"]');
 
-            fetch("/api/admin/rate_history?hours=24", { headers: { "Authorization": tg.initData } })
-                .then(r => r.json())
-                .then(data => {
-                    const labels = data.history.map(h => new Date(h.recorded_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
-                    new Chart(document.getElementById("rateChart"), {
-                        type: "line",
-                        data: {
-                            labels: labels,
-                            datasets: [
-                                { label: "Покупка (rufinex)", data: data.history.map(h => h.buy), borderColor: "#34c759", tension: 0.3 },
-                                { label: "Продажа (rufinex)", data: data.history.map(h => h.sell), borderColor: "#ff3b30", tension: 0.3 },
-                            ],
-                        },
-                        options: { responsive: true, plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
-                    });
-                });
+      row.querySelector('[data-action="save"]').onclick = () => {
+        apiFetch("/api/admin/ads", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exchange: ad.exchange, side: ad.side, url: urlInput.value || null, price: priceInput.value ? parseFloat(priceInput.value) : null }),
+        }).then(() => { toast("✅ Сохранено"); tg.HapticFeedback.notificationOccurred("success"); }).catch(e => toast("Ошибка: " + e.message));
+      };
+      row.querySelector('[data-action="reset"]').onclick = () => {
+        apiFetch("/api/admin/ads/reset_price", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ exchange: ad.exchange, side: ad.side }) })
+          .then(() => { toast("🔄 Сброшено на авто"); loadAdsPanel(); });
+      };
+      row.querySelector('[data-action="delete"]').onclick = () => {
+        if (!confirm("Удалить объявление?")) return;
+        apiFetch("/api/admin/ads/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ exchange: ad.exchange, side: ad.side }) })
+          .then(() => { toast("🗑 Удалено"); loadAdsPanel(); });
+      };
+      list.appendChild(row);
+    });
+  });
+}
 
-            fetch("/api/admin/click_history?days=7", { headers: { "Authorization": tg.initData } })
-                .then(r => r.json())
-                .then(data => {
-                    new Chart(document.getElementById("clickChart"), {
-                        type: "bar",
-                        data: {
-                            labels: data.history.map(h => h.day),
-                            datasets: [{ label: "Клики клиентов", data: data.history.map(h => h.count), backgroundColor: "#0a84ff" }],
-                        },
-                        options: { responsive: true, plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
-                    });
-                });
-        }
-    </script>
+function loadCharts() {
+  apiFetch("/api/admin/rate_history?hours=24").then(data => {
+    const labels = data.history.map(h => new Date(h.recorded_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
+    new Chart(document.getElementById("rateChart"), {
+      type: "line",
+      data: { labels, datasets: [
+        { label: "Покупка", data: data.history.map(h => h.buy), borderColor: "#34c759", tension: 0.3 },
+        { label: "Продажа", data: data.history.map(h => h.sell), borderColor: "#ff453a", tension: 0.3 },
+      ]},
+      options: { plugins: { legend: { labels: { color: "#ccc" } } }, scales: { x: { ticks: { color: "#ccc" } }, y: { ticks: { color: "#ccc" } } } },
+    });
+  });
+  apiFetch("/api/admin/click_history?days=7").then(data => {
+    new Chart(document.getElementById("clickChart"), {
+      type: "bar",
+      data: { labels: data.history.map(h => h.day), datasets: [{ label: "Клики", data: data.history.map(h => h.count), backgroundColor: "#0a84ff" }] },
+      options: { plugins: { legend: { labels: { color: "#ccc" } } }, scales: { x: { ticks: { color: "#ccc" } }, y: { ticks: { color: "#ccc" } } } },
+    });
+  });
+}
+</script>
 </body>
 </html>
