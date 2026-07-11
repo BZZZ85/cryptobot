@@ -14,6 +14,7 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel
 import requests
 import storage
+import rufinex_client
 
 app = FastAPI()
 
