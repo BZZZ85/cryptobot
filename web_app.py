@@ -39,7 +39,13 @@ async def api_rates(authorization: str = Header(default="")):
     is_admin = user.get("id") in config.ADMIN_CHAT_IDS
     text = await build_rates_text()
     age = rufinex_client.get_cache_age_seconds()
-    return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age}
+    support_url = f"https://t.me/{config.SUPPORT_CONTACT.lstrip('@')}" if config.SUPPORT_CONTACT else None
+    social_links = {
+        "telegram": config.TELEGRAM_CHANNEL_URL or None,
+        "instagram": config.INSTAGRAM_URL or None,
+        "support": support_url,
+    }
+    return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age, "social_links": social_links}
 
 class AdUpdate(BaseModel):
     exchange: str
