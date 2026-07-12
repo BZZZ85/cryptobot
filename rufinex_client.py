@@ -7,11 +7,11 @@ GET https://api.rufinex.ru/api/rates -> {"buy": "79.3", "sell": "79.8"}
 import requests
 import time
 
+import storage
+
 _cache = {"rates": None, "fetched_at": 0}
 CACHE_TTL_SECONDS = 60  # не дёргаем rufinex чаще раза в минуту
 RUFINEX_API_URL = "https://api.rufinex.ru/api/rates"
-
-MARKUP_PERCENT = 5.0  # наценка сверху базового курса
 
 
 def fetch_base_rates() -> dict | None:
@@ -53,7 +53,8 @@ def compute_price_with_markup(side: str) -> float | None:
     base = rates.get(rufinex_side)
     if base is None:
         return None
-    return round(base * (1 + MARKUP_PERCENT / 100), 2)
+    markup_percent = storage.get_markup_percent()
+    return round(base * (1 + markup_percent / 100), 2)
 def get_cache_age_seconds() -> int | None:
     """Сколько секунд назад в последний раз реально обновлялся курс. None, если ещё не запрашивали."""
     if not _cache["rates"]:
