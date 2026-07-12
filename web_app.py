@@ -45,9 +45,14 @@ async def api_rates(authorization: str = Header(default="")):
         "instagram": config.INSTAGRAM_URL or None,
         "support": support_url,
     }
-    stats = {"since_year": config.WORKING_SINCE_YEAR, "total_deals": storage.get_total_clicks_count()}
+    review_stats = storage.get_review_stats()
+    stats = {
+        "since_year": config.WORKING_SINCE_YEAR,
+        "total_deals": storage.get_total_clicks_count(),
+        "rating": review_stats["avg_rating"],
+        "rating_count": review_stats["count"],
+    }
     return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age, "social_links": social_links, "stats": stats}
-
 class AdUpdate(BaseModel):
     exchange: str
     side: str
@@ -109,13 +114,50 @@ async def api_rate_history(hours: int = 24, user=Depends(require_admin)):
 @app.get("/api/admin/click_history")
 async def api_click_history(days: int = 7, user=Depends(require_admin)):
     return {"history": storage.get_click_history(days)}
-def notify_admins(text: str):
+
+
+@app.get("/api/admin/conversion")
+async def api_conversion(user=Depends(require_admin)):
+    return storage.get_conversion_stats()
+
+
+@app.get("/api/admin/markup")
+async def api_get_markup(user=Depends(require_admin)):
+    return {"markup_percent": storage.get_markup_percent()}
+
+
+class MarkupUpdate(BaseModel):
+    markup_percent: float
+
+
+@app.post("/api/admin/markup")
+async def api_set_markup(payload: MarkupUpdate, user=Depends(require_admin)):
+    storage.set_markup_percent(payload.markup_percent)
+    return {"ok": True}
+
+
+@app.get("/api/reviews")
+async def api_reviews(authorization: str = Header(default="")):
+    get_user(authorization)  # просто проверяем, что запрос из Telegram
+    return {"reviews": storage.get_recent_reviews(10), "stats": storage.get_review_stats()}
+
+
+def notify_admins(text: str, click_id: int = None):
     """Шлём уведомление напрямую через Telegram HTTP API (без объекта бота - мы отдельный процесс)."""
+    reply_markup = None
+    if click_id is not None:
+        reply_markup = {
+            "inline_keyboard": [[{"text": "✅ Сделка состоялась", "callback_data": f"deal_done:{click_id}"}]]
+        }
+
     for admin_id in config.ADMIN_CHAT_IDS:
         try:
+            payload = {"chat_id": admin_id, "text": text}
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
             requests.post(
                 f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={"chat_id": admin_id, "text": text},
+                json=payload,
                 timeout=10,
             )
         except Exception:
@@ -161,16 +203,16 @@ async def api_client_deliver(payload: ClientDeliverRequest, user=Depends(get_use
         raise HTTPException(status_code=404, detail="Объявление недоступно")
 
     username = f"@{user.get('username')}" if user.get("username") else user.get("first_name", "Клиент")
-    storage.record_click(payload.exchange, payload.side, username, user.get("id"))
+    click_id = storage.record_click(payload.exchange, payload.side, username, user.get("id"))
 
     side_label = "Купить" if payload.side == "buy" else "Продать"
     amount_line = f" (сумма: {payload.amount})" if payload.amount else ""
     notify_admins(
         f"👉 [Панель] Клиент {username} выбрал: {side_label} USDT/RUB на {exchange.name}"
         + (f" (~{ad['price']:.2f} ₽)" if ad.get("price") else "")
-        + amount_line
+        + amount_line,
+        click_id=click_id,
     )
-
     return {"link": ad["link"], "price": ad.get("price"), "exchange_name": exchange.name}
 
 
