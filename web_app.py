@@ -119,6 +119,27 @@ async def api_admin_conversion(days: int = 7, user=Depends(require_admin)):
 @app.get("/api/admin/reviews")
 async def api_admin_reviews(user=Depends(require_admin)):
     return storage.get_review_stats()
+
+
+class LimitUpdate(BaseModel):
+    side: str
+    amount: float | None = None
+
+
+@app.get("/api/admin/limits")
+async def api_admin_limits(user=Depends(require_admin)):
+    return {
+        "buy": rufinex_client.get_available_limit("buy"),
+        "sell": rufinex_client.get_available_limit("sell"),
+    }
+
+
+@app.post("/api/admin/limits")
+async def api_admin_set_limit(payload: LimitUpdate, user=Depends(require_admin)):
+    if payload.side not in ("buy", "sell"):
+        raise HTTPException(status_code=400, detail="side должен быть buy или sell")
+    rufinex_client.set_available_limit(payload.side, payload.amount if payload.amount and payload.amount > 0 else None)
+    return {"ok": True}
 def notify_admins(text: str):
     """Шлём уведомление напрямую через Telegram HTTP API (без объекта бота - мы отдельный процесс)."""
     for admin_id in config.ADMIN_CHAT_IDS:
@@ -151,7 +172,7 @@ async def api_client_exchanges(side: str, user=Depends(get_user)):
             "price": ad.get("price"),
             "logo": f"/logos/{key}.png",
         })
-    return {"exchanges": result}
+    return {"exchanges": result, "limit": rufinex_client.get_available_limit(side)}
 
 
 class ClientDeliverRequest(BaseModel):
@@ -191,7 +212,12 @@ async def api_client_deliver(payload: ClientDeliverRequest, user=Depends(get_use
         + profile_line
     )
 
-    return {"link": ad["link"], "price": ad.get("price"), "exchange_name": exchange.name}
+    return {
+        "link": ad["link"],
+        "price": ad.get("price"),
+        "exchange_name": exchange.name,
+        "warning": rufinex_client.check_amount_limit(payload.amount, payload.side),
+    }
 
 
 @app.get("/api/client/profile")
