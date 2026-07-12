@@ -47,7 +47,7 @@ SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
 EXCHANGE_EMOJI = {
     "bybit": "",
     "bitget": "",
-    "htx": "",
+    "TELEGRAMWALLET": "",
     "mexc": "",
 }
 BANNER_PATH = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
@@ -535,13 +535,13 @@ async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     if len(context.args) < 3:
-        await update.message.reply_text("Формат: /setlink <биржа> <buy|sell> <ссылка>\nПример: /setlink htx buy https://...")
+        await update.message.reply_text("Формат: /setlink <биржа> <buy|sell> <ссылка>\nПример: /setlink telegramwallet buy https://...")
         return
 
     exchange_key, side, url = context.args[0].lower(), context.args[1].lower(), context.args[2]
     if exchange_key not in EXCHANGES or EXCHANGES[exchange_key].has_api:
         await update.message.reply_text(
-            "Эта команда только для 'ручных' бирж (например htx, mexc)."
+            "Эта команда только для 'ручных' бирж (например telegramwallet, mexc)."
         )
         return
     if side not in ("buy", "sell"):
@@ -567,7 +567,7 @@ async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if exchange_key not in EXCHANGES or EXCHANGES[exchange_key].has_api:
-        await update.message.reply_text("Эта команда только для 'ручных' бирж (например htx, mexc).")
+        await update.message.reply_text("Эта команда только для 'ручных' бирж (например telegramwallet, mexc).")
         return
 
     storage.set_manual_ad(exchange_key, side, price=price)
