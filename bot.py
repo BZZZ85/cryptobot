@@ -321,7 +321,13 @@ async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Точка входа в мастер настройки. Дальше всё происходит через кнопки."""
     if not is_admin(update):
         return
-
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    had_state = pending_amount_request.pop(chat_id, None) or pending_setup.pop(chat_id, None)
+    if had_state:
+        await update.message.reply_text("Отменено. Можешь начать заново — /start или ⚙️ Настройка.")
+    else:
+        await update.message.reply_text("Сейчас нечего отменять.")
     manual_keys = [key for key, ex in EXCHANGES.items() if not ex.has_api]
     if not manual_keys:
         await update.message.reply_text("Нет ручных бирж для настройки (все подключены через API).")
@@ -432,7 +438,7 @@ async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             amount=update.message.text.strip(),
         )
         open_button = InlineKeyboardMarkup([
-            InlineKeyboardButton(f"Открыть на {EXCHANGES[exchange_key].name} ↗", url=link, style="success")
+            [InlineKeyboardButton(f"Открыть на {EXCHANGES[amount_state['exchange']].name} ↗", url=link, style="success")],
             [InlineKeyboardButton("⬅️ В начало", callback_data="back_to_main")],
         ])
         await update.message.reply_text(text, reply_markup=open_button)
@@ -613,7 +619,17 @@ async def record_rate_history(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 # ЗАПУСК
 # ---------------------------------------------------------------------------
-
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Ловит все необработанные исключения в хендлерах и репортит админу, чтобы не летать в потёмках."""
+    logging.error("Необработанная ошибка", exc_info=context.error)
+    try:
+        await context.bot.send_message(
+            chat_id=config.ADMIN_CHAT_ID,
+            text=f"⚠️ Ошибка в боте:\n<code>{context.error}</code>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
 def main():
     if not config.TELEGRAM_BOT_TOKEN or not config.ADMIN_CHAT_IDS:
         print("ОШИБКА: заполни TELEGRAM_BOT_TOKEN и ADMIN_CHAT_IDS в .env")
@@ -627,7 +643,9 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("broadcast", broadcast))
+    application.add_error_handler(error_handler)
     application.add_handler(CommandHandler("setup", setup))
+    application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
     application.add_handler(CommandHandler("status", status))
