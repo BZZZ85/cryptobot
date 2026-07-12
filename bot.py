@@ -47,7 +47,7 @@ SIDE_LABELS = {"buy": "Купить", "sell": "Продать"}
 EXCHANGE_EMOJI = {
     "bybit": "",
     "bitget": "",
-    "TELEGRAMWALLET": "",
+    "htx": "",
     "mexc": "",
 }
 BANNER_PATH = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
@@ -122,19 +122,10 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(BANNER_PATH, "rb") as photo:
             await update.message.reply_photo(
                 photo=photo,
-                caption=(
-                    "🤖 <b>USDT/RUB,,RUB ⇄ USDT Обменник ExUma</b>\n"
-                    "Быстро и по актуальному курсу\n\n"
-                    "<b>!Как это работает?:</b>\n"
-                    "1️⃣ Жми «Купить» или «Продать» ниже\n"
-                    "2️⃣ Выбери подходящую биржу\n"
-                    "3️⃣ Укажи сумму (или пропусти этот шаг)\n"
-                    "4️⃣ Перейди по ссылке и выбери нужное объявление из списка, заверши сделку прямо на бирже\n\n"
-                    "❓ Вопросы — команда /help"
-                ),
+                caption="🤖 <b>USDT/RUB Обменник</b>\nБыстро и по актуальному курсу",
             )
 
-    await update.message.reply_text("👇", reply_markup=keyboard)
+    await update.message.reply_text("👇 Что делаем дальше?", reply_markup=keyboard)
     await update.message.reply_text(rates_text, reply_markup=inline_buttons)
 
 # Состояние пошагового мастера /setup для админа:
@@ -142,8 +133,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 pending_setup: dict[int, dict] = {}
 pending_amount_request: dict[int, dict] = {}
 pending_broadcast: dict[int, str] = {}
-pending_review: dict[int, dict] = {}
-pending_alert_request: dict[int, dict] = {}
 async def show_side_selection(query):
     inline_buttons = InlineKeyboardMarkup([
         [
@@ -218,31 +207,66 @@ async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, usernam
     if not ad or not ad.get("link"):
         return "Ссылка временно недоступна, попробуй позже."
 
+    ad["price"] = rufinex_client.apply_loyalty_discount(ad.get("price"), side, chat_id)
+    is_loyal = rufinex_client.is_loyal_client(chat_id)
+
     amount_line = f"\n💵 Сумма: <b>{amount}</b>" if amount else ""
+    loyalty_line = "\n🎁 Применена скидка постоянного клиента" if is_loyal else ""
     client_text = (
         f"✅ <b>{SIDE_LABELS[side]} USDT/RUB на {exchange.name}</b>"
         + (f"\n💱 Цена: <code>{ad['price']:.2f} ₽</code>" if ad.get("price") else "")
         + amount_line
+        + loyalty_line
         + f"\n\n👇 Нажми кнопку ниже, чтобы открыть сделку"
     )
 
-    click_id = storage.record_click(exchange_key, side, username, chat_id)
+    storage.record_click(exchange_key, side, username, chat_id)
+
+    profile = storage.get_client_profile(chat_id) or {}
+    profile_line = ""
+    if profile.get("full_name"):
+        profile_line += f"\n👤 ФИО: {profile['full_name']}"
+    if profile.get("exchange_nickname"):
+        profile_line += f"\n🏷 Ник на бирже: {profile['exchange_nickname']}"
 
     notify_text = (
         f"👉 Клиент {username} выбрал: {SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
         + (f" (~{ad['price']:.2f} ₽)" if ad.get("price") else "")
         + amount_line
+        + profile_line
     )
-    deal_button = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Сделка состоялась", callback_data=f"deal_done:{click_id}", style="success")
-    ]])
     for admin_id in config.ADMIN_CHAT_IDS:
         try:
-            await context.bot.send_message(chat_id=admin_id, text=notify_text, reply_markup=deal_button)
+            await context.bot.send_message(chat_id=admin_id, text=notify_text)
         except Exception as e:
             logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
 
+    if context.job_queue:
+        context.job_queue.run_once(
+            ask_for_review,
+            when=1200,  # через 20 минут - к этому моменту сделка обычно уже завершена
+            data={"exchange": exchange_key, "side": side, "chat_id": chat_id},
+        )
+
     return client_text, ad["link"]
+
+
+async def ask_for_review(context: ContextTypes.DEFAULT_TYPE):
+    """Отложенный запрос оценки сделки - ставится в очередь из deliver_link."""
+    data = context.job.data
+    exchange_name = EXCHANGES[data["exchange"]].name if data["exchange"] in EXCHANGES else data["exchange"]
+    buttons = InlineKeyboardMarkup([[
+        InlineKeyboardButton(str(n), callback_data=f"review:{data['exchange']}:{data['side']}:{n}")
+        for n in range(1, 6)
+    ]])
+    try:
+        await context.bot.send_message(
+            chat_id=data["chat_id"],
+            text=f"Как прошла сделка на {exchange_name}? Оцени от 1 до 5 ⭐",
+            reply_markup=buttons,
+        )
+    except Exception as e:
+        logger.error(f"Не удалось запросить отзыв у {data['chat_id']}: {e}")
 
 
 async def ask_for_amount(query, exchange_key: str, side: str):
@@ -288,6 +312,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ В начало", callback_data="back_to_main")],
         ])
         await query.edit_message_text(text, reply_markup=open_button)
+    elif data.startswith("review:"):
+        _, exchange_key, side, rating = data.split(":", 3)
+        storage.record_review(query.message.chat_id, exchange_key, side, int(rating))
+        await query.edit_message_text("Спасибо за оценку! 🙏")
     elif data == "broadcast_confirm":
         chat_id = query.message.chat_id
         text = pending_broadcast.pop(chat_id, None)
@@ -306,40 +334,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "broadcast_cancel":
         pending_broadcast.pop(query.message.chat_id, None)
         await query.edit_message_text("Рассылка отменена.")
-    elif data.startswith("deal_done:"):
-        _, click_id = data.split(":", 1)
-        deal = storage.mark_click_completed(int(click_id))
-        if deal is None:
-            await query.edit_message_text(query.message.text + "\n\n(уже было отмечено ранее)")
-            return
-        await query.edit_message_text(query.message.text + "\n\n✅ Отмечено как выполненная сделка")
-
-        if deal.get("chat_id"):
-            stars_buttons = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⭐" * n, callback_data=f"review:{click_id}:{n}") for n in range(1, 6)
-            ]])
-            try:
-                await context.bot.send_message(
-                    chat_id=deal["chat_id"],
-                    text="Спасибо за сделку! Оцени, пожалуйста, как всё прошло:",
-                    reply_markup=stars_buttons,
-                )
-            except Exception as e:
-                logger.error(f"Не удалось отправить запрос отзыва: {e}")
-    elif data.startswith("review:"):
-        _, click_id, rating = data.split(":", 2)
-        user = query.from_user
-        username = f"@{user.username}" if user.username else user.full_name
-        storage.add_review(query.message.chat_id, username, int(rating), click_id=int(click_id))
-        pending_review[query.message.chat_id] = {"click_id": int(click_id)}
-        await query.edit_message_text(
-            f"Спасибо за оценку {'⭐' * int(rating)}!\n"
-            f"Хочешь добавить комментарий? Напиши текст или нажми Пропустить.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Пропустить", callback_data="review_skip")]]),
-        )
-    elif data == "review_skip":
-        pending_review.pop(query.message.chat_id, None)
-        await query.edit_message_text("Спасибо за отзыв! 🙌")
     elif data.startswith("setup_ex:"):
         _, exchange_key = data.split(":", 1)
         await show_side_menu(query, exchange_key)
@@ -479,34 +473,8 @@ async def ask_delete_confirm(query, exchange_key: str, side: str):
 
 
 async def handle_setup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ловит текстовые ответы: сумма, комментарий к отзыву, порог алерта, либо ссылка/цена от админа в /setup."""
+    """Ловит текстовые ответы: либо сумму от клиента, либо ссылку/цену от админа в /setup."""
     chat_id = update.effective_chat.id
-
-    if chat_id in pending_review:
-        review_state = pending_review.pop(chat_id)
-        comment = update.message.text.strip()
-        # Обновляем последний отзыв этого клика комментарием
-        with storage.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE reviews SET comment=%s WHERE click_id=%s",
-                    (comment, review_state["click_id"]),
-                )
-        await update.message.reply_text("Спасибо за отзыв! 🙌")
-        return
-
-    if chat_id in pending_alert_request:
-        alert_state = pending_alert_request.pop(chat_id)
-        try:
-            threshold = float(update.message.text.strip().replace(",", "."))
-        except ValueError:
-            await update.message.reply_text("Это не похоже на число. Попробуй ещё раз, например: 78.5")
-            pending_alert_request[chat_id] = alert_state
-            return
-        storage.add_price_alert(chat_id, alert_state["side"], threshold)
-        side_text = "покупки" if alert_state["side"] == "buy" else "продажи"
-        await update.message.reply_text(f"🔔 Оповещу, когда курс {side_text} достигнет {threshold:.2f} ₽")
-        return
 
     if chat_id in pending_amount_request:
         amount_state = pending_amount_request.pop(chat_id)
@@ -567,7 +535,7 @@ async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     if len(context.args) < 3:
-        await update.message.reply_text("Формат: /setlink <биржа> <buy|sell> <ссылка>\nПример: /setlink telegramwallet buy https://...")
+        await update.message.reply_text("Формат: /setlink <биржа> <buy|sell> <ссылка>\nПример: /setlink htx buy https://...")
         return
 
     exchange_key, side, url = context.args[0].lower(), context.args[1].lower(), context.args[2]
@@ -599,7 +567,7 @@ async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if exchange_key not in EXCHANGES or EXCHANGES[exchange_key].has_api:
-        await update.message.reply_text("Эта команда только для 'ручных' бирж (например wallet, mexc).")
+        await update.message.reply_text("Эта команда только для 'ручных' бирж (например htx, mexc).")
         return
 
     storage.set_manual_ad(exchange_key, side, price=price)
@@ -640,14 +608,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         exchange_name = EXCHANGES[row["exchange"]].name if row["exchange"] in EXCHANGES else row["exchange"]
         lines.append(f"<b>{exchange_name}</b> — {SIDE_LABELS[row['side']]}: <code>{row['count']}</code>")
 
-    conv = storage.get_conversion_stats()
-    lines.append("")
-    lines.append(f"💰 Конверсия клик→сделка: <b>{conv['conversion_rate']}%</b> ({conv['completed_deals']} из {conv['total_clicks']})")
-
-    review_stats = storage.get_review_stats()
-    if review_stats["count"]:
-        lines.append(f"⭐ Средняя оценка: <b>{review_stats['avg_rating']}</b> ({review_stats['count']} отзывов)")
-
     await update.message.reply_text("\n".join(lines))
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
@@ -687,7 +647,7 @@ async def check_new_orders(context: ContextTypes.DEFAULT_TYPE):
         for order in orders:
             if storage.is_order_seen(order["order_id"]):
                 continue
-            storage.mark_order_seen(order["order_id"])
+            storage.mark_order_seen(order["order_id"], exchange=key)
 
             text = (
                 f"🔔 Новый ордер на {exchange.name}!\n"
@@ -704,91 +664,61 @@ async def record_rate_history(context: ContextTypes.DEFAULT_TYPE):
             storage.record_rate_snapshot(rates["buy"], rates["sell"])
     except Exception as e:
         logger.error(f"Не удалось сохранить историю курса: {e}")
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    had_state = (
-        pending_amount_request.pop(chat_id, None)
-        or pending_setup.pop(chat_id, None)
-        or pending_review.pop(chat_id, None)
-        or pending_alert_request.pop(chat_id, None)
-    )
-    if had_state:
-        await update.message.reply_text("Отменено. Можешь начать заново — /start или ⚙️ Настройка.")
-    else:
-        await update.message.reply_text("Сейчас нечего отменять.")
-async def check_price_alerts(context: ContextTypes.DEFAULT_TYPE):
-    """Проверяет активные ценовые алерты клиентов и уведомляет при достижении порога."""
-    alerts = storage.get_active_alerts()
-    if not alerts:
-        return
-
-    buy_price = rufinex_client.compute_price_with_markup("buy")
-    sell_price = rufinex_client.compute_price_with_markup("sell")
-
-    for a in alerts:
-        current = buy_price if a["side"] == "buy" else sell_price
-        if current is None:
-            continue
-
-        triggered = (a["side"] == "buy" and current <= a["threshold"]) or (a["side"] == "sell" and current >= a["threshold"])
-        if not triggered:
-            continue
-
-        side_text = "покупки" if a["side"] == "buy" else "продажи"
-        try:
-            await context.bot.send_message(
-                chat_id=a["chat_id"],
-                text=f"🔔 Курс {side_text} достиг {current:.2f} ₽ (твой порог был {a['threshold']:.2f} ₽)",
-            )
-        except Exception as e:
-            logger.error(f"Не удалось уведомить об алерте {a['id']}: {e}")
-        storage.deactivate_alert(a["id"])
-
-async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Клиентская команда: /alert buy или /alert sell - запускает запрос порога цены."""
-    if not context.args or context.args[0].lower() not in ("buy", "sell"):
-        await update.message.reply_text(
-            "Формат: /alert buy или /alert sell\n\n"
-            "buy - сообщу, когда курс покупки станет ниже указанного тобой числа\n"
-            "sell - сообщу, когда курс продажи станет выше указанного тобой числа"
-        )
-        return
-
-    side = context.args[0].lower()
-    chat_id = update.effective_chat.id
-    pending_alert_request[chat_id] = {"side": side}
-    side_text = "покупки" if side == "buy" else "продажи"
-    await update.message.reply_text(f"При каком курсе {side_text} тебе сообщить? Напиши число, например 78.5")
 
 
-async def myalerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    alerts = storage.get_user_alerts(chat_id)
-    if not alerts:
-        await update.message.reply_text("У тебя пока нет активных оповещений. Создать: /alert buy или /alert sell")
-        return
-    lines = ["🔔 Твои активные оповещения:"]
-    for a in alerts:
-        side_text = "Покупка" if a["side"] == "buy" else "Продажа"
-        lines.append(f"#{a['id']} - {side_text}: {a['threshold']:.2f} ₽")
-    await update.message.reply_text("\n".join(lines))
-
-
-async def setmarkup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Админская команда: /setmarkup 5.5 - меняет наценку сверху курса rufinex."""
+async def setmarkup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     if not context.args:
-        current = storage.get_markup_percent()
-        await update.message.reply_text(f"Текущая наценка: {current}%\nЧтобы изменить: /setmarkup 5.5")
+        current = rufinex_client.get_markup_percent()
+        await update.message.reply_text(f"Текущая наценка: {current}%.\nЧтобы изменить: /setmarkup 7.5")
         return
     try:
         value = float(context.args[0].replace(",", "."))
     except ValueError:
-        await update.message.reply_text("Наценка должна быть числом, например: /setmarkup 5.5")
+        await update.message.reply_text("Это не похоже на число. Пример: /setmarkup 7.5")
         return
-    storage.set_markup_percent(value)
-    await update.message.reply_text(f"✅ Наценка изменена на {value}%")
+    rufinex_client.set_markup_percent(value)
+    await update.message.reply_text(f"✅ Наценка обновлена: {value}% (применится к ценам, которые считаются автоматически)")
+
+
+async def check_price_alerts(context: ContextTypes.DEFAULT_TYPE):
+    """Раз в 5 минут сверяет базовый курс rufinex с алертами клиентов и уведомляет при срабатывании."""
+    try:
+        rates = rufinex_client.fetch_base_rates()
+        if not rates:
+            return
+        for alert in storage.get_all_active_alerts():
+            price = rates["buy"] if alert["side"] == "buy" else rates["sell"]
+            triggered = (
+                (alert["direction"] == "above" and price >= alert["threshold"])
+                or (alert["direction"] == "below" and price <= alert["threshold"])
+            )
+            if not triggered:
+                continue
+            direction_text = "выше" if alert["direction"] == "above" else "ниже"
+            try:
+                await context.bot.send_message(
+                    chat_id=alert["chat_id"],
+                    text=(
+                        f"🔔 Курс {SIDE_LABELS[alert['side']].lower()} USDT/RUB {direction_text} "
+                        f"{alert['threshold']:.2f} ₽ — сейчас {price:.2f} ₽!"
+                    ),
+                )
+            except Exception as e:
+                logger.error(f"Не удалось уведомить об алерте {alert['chat_id']}: {e}")
+            storage.deactivate_alert(alert["id"])
+    except Exception as e:
+        logger.error(f"Ошибка проверки ценовых алертов: {e}")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    had_state = pending_amount_request.pop(chat_id, None) or pending_setup.pop(chat_id, None)
+    if had_state:
+        await update.message.reply_text("Отменено. Можешь начать заново — /start или ⚙️ Настройка.")
+    else:
+        await update.message.reply_text("Сейчас нечего отменять.")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Ловит все необработанные исключения в хендлерах и репортит админам, чтобы не летать в потёмках."""
     logger.error("Необработанная ошибка", exc_info=context.error)
@@ -819,12 +749,10 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("broadcast", broadcast))
-    application.add_handler(CommandHandler("alert", alert_command))
-    application.add_handler(CommandHandler("myalerts", myalerts_command))
-    application.add_handler(CommandHandler("setmarkup", setmarkup_command))
     application.add_handler(CommandHandler("setup", setup))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
+    application.add_handler(CommandHandler("setmarkup", setmarkup))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.Text(["▶️ Старт", "🔄 Рестарт"]), show_main_menu))
@@ -837,7 +765,8 @@ def main():
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
     application.job_queue.run_repeating(record_rate_history, interval=300, first=15)
-    application.job_queue.run_repeating(check_price_alerts, interval=60, first=20)
+    application.job_queue.run_repeating(check_price_alerts, interval=300, first=20)
+
     print("Мультибиржевый P2P-бот запущен! Ctrl+C для остановки.")
     application.run_polling()
 
