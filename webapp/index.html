@@ -182,13 +182,6 @@
 <!-- ВКЛАДКА: Объявления (админ) -->
 <div id="view-ads" class="view hidden">
   <h2>⚙️ Объявления</h2>
-  <div class="card" id="markup-card">
-    <div style="font-size:13px;opacity:0.7;margin-bottom:8px;">Наценка сверху курса rufinex</div>
-    <div style="display:flex;gap:8px;align-items:center;">
-      <input type="number" step="0.1" id="markup-input" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.2));background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
-      <button class="btn-primary" style="border-radius:8px;color:white;border:none;padding:10px 14px;" onclick="saveMarkup()">%  Сохранить</button>
-    </div>
-  </div>
   <div id="ads-list"></div>
 </div>
 
@@ -199,6 +192,10 @@
   <div class="card"><canvas id="rateChart" height="180"></canvas></div>
   <h3>Клики за 7 дней</h3>
   <div class="card"><canvas id="clickChart" height="180"></canvas></div>
+  <h3>Конверсия клик → сделка (7 дней)</h3>
+  <div class="card" id="conversion-card">Загрузка...</div>
+  <h3>Отзывы клиентов</h3>
+  <div class="card" id="reviews-card">Загрузка...</div>
 </div>
 
 <!-- ВКЛАДКА: Профиль -->
@@ -215,6 +212,16 @@
     <div style="margin-top:12px;font-size:13px;opacity:0.6;">ID: <span id="profile-id"></span></div>
   </div>
 
+  <div class="card hidden" id="loyalty-badge"></div>
+
+  <div class="card" id="edit-profile-card">
+    <div style="font-size:13px;opacity:0.7;margin-bottom:10px;">Мои данные</div>
+    <input type="text" id="input-full-name" placeholder="ФИО" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);margin-bottom:8px;">
+    <input type="text" id="input-exchange-nickname" placeholder="Никнейм на биржах (Bybit/Bitget/HTX/MEXC)" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);margin-bottom:8px;">
+    <button class="btn btn-success" id="save-profile-btn">💾 Сохранить</button>
+    <div style="font-size:12px;opacity:0.6;margin-top:6px;">Это поможет нам быстрее найти твою сделку на бирже.</div>
+  </div>
+
   <div class="card" id="history-card">
     <div style="font-size:13px;opacity:0.7;margin-bottom:10px;">Последние операции</div>
     <div id="history-list" style="font-size:13px;opacity:0.7;">Загрузка...</div>
@@ -224,6 +231,23 @@
     <div style="font-size:13px;opacity:0.7;margin-bottom:6px;">Приглашай друзей</div>
     <div style="font-size:13px;">Приглашено: <b id="referral-count">0</b></div>
     <button class="btn btn-primary" id="referral-share-btn" style="margin-top:10px;">📤 Поделиться ссылкой</button>
+  </div>
+
+  <div class="card" id="alerts-card">
+    <div style="font-size:13px;opacity:0.7;margin-bottom:10px;">🔔 Уведомить о курсе</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <select id="alert-side" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
+        <option value="buy">Покупка</option>
+        <option value="sell">Продажа</option>
+      </select>
+      <select id="alert-direction" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
+        <option value="above">Станет выше</option>
+        <option value="below">Станет ниже</option>
+      </select>
+    </div>
+    <input type="number" step="0.01" id="alert-threshold" placeholder="Цена, ₽" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);margin-bottom:8px;">
+    <button class="btn btn-success" id="alert-create-btn">Установить</button>
+    <div id="alerts-list" style="margin-top:12px;"></div>
   </div>
 
   <div class="card">
@@ -283,6 +307,19 @@ const SIDE_LABELS_RU = { buy: "Покупка", sell: "Продажа" };
 
 function loadProfileExtra() {
   apiFetch("/api/client/profile").then(data => {
+    document.getElementById("input-full-name").value = data.full_name || "";
+    document.getElementById("input-exchange-nickname").value = data.exchange_nickname || "";
+
+    const badge = document.getElementById("loyalty-badge");
+    if (data.is_loyal) {
+      badge.innerText = `💎 Постоянный клиент — скидка ${data.loyalty_discount_percent}% на следующие сделки`;
+      badge.classList.remove("hidden");
+    } else {
+      const left = data.loyalty_threshold - data.deals_count;
+      badge.innerText = `Ещё ${left} сделок(и) до статуса "Постоянный клиент" и скидки 🎁`;
+      badge.classList.remove("hidden");
+    }
+
     const list = document.getElementById("history-list");
     if (!data.history.length) {
       list.innerText = "Пока пусто — здесь появятся твои операции.";
@@ -308,11 +345,63 @@ function loadProfileExtra() {
 }
 loadProfileExtra();
 
+document.getElementById("save-profile-btn").onclick = () => {
+  const full_name = document.getElementById("input-full-name").value.trim();
+  const exchange_nickname = document.getElementById("input-exchange-nickname").value.trim();
+  apiFetch("/api/client/profile", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ full_name: full_name || null, exchange_nickname: exchange_nickname || null }),
+  }).then(() => {
+    toast("✅ Сохранено");
+    tg.HapticFeedback.notificationOccurred("success");
+  }).catch(e => toast("Ошибка: " + e.message));
+};
+
+const ALERT_SIDE_LABEL = { buy: "Покупка", sell: "Продажа" };
+const ALERT_DIR_LABEL = { above: "выше", below: "ниже" };
+
+function loadAlerts() {
+  apiFetch("/api/client/alerts").then(data => {
+    const box = document.getElementById("alerts-list");
+    if (!data.alerts.length) { box.innerHTML = ""; return; }
+    box.innerHTML = data.alerts.map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.15));font-size:13px;">
+        <span>${ALERT_SIDE_LABEL[a.side]} ${ALERT_DIR_LABEL[a.direction]} ${a.threshold.toFixed(2)} ₽</span>
+        <button data-id="${a.id}" class="alert-cancel-btn" style="border:none;background:none;color:#ff3b30;cursor:pointer;">✕</button>
+      </div>
+    `).join("");
+    box.querySelectorAll(".alert-cancel-btn").forEach(btn => {
+      btn.onclick = () => {
+        apiFetch("/api/client/alerts/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: parseInt(btn.dataset.id) }) })
+          .then(() => { toast("Алерт отменён"); loadAlerts(); }).catch(e => toast("Ошибка: " + e.message));
+      };
+    });
+  }).catch(e => toast("Ошибка: " + e.message));
+}
+loadAlerts();
+
+document.getElementById("alert-create-btn").onclick = () => {
+  const threshold = parseFloat(document.getElementById("alert-threshold").value);
+  if (!threshold || threshold <= 0) { toast("Укажи цену"); return; }
+  apiFetch("/api/client/alerts", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      side: document.getElementById("alert-side").value,
+      direction: document.getElementById("alert-direction").value,
+      threshold,
+    }),
+  }).then(() => {
+    toast("🔔 Алерт установлен");
+    document.getElementById("alert-threshold").value = "";
+    tg.HapticFeedback.notificationOccurred("success");
+    loadAlerts();
+  }).catch(e => toast("Ошибка: " + e.message));
+};
+
 function renderStatsBadge(stats) {
   if (!stats) return;
   const el = document.getElementById("stats-badge");
-  const ratingPart = stats.rating ? ` · ⭐ ${stats.rating} (${stats.rating_count})` : "";
-  el.innerText = `🚀 Работаем с ${stats.since_year} года · ${stats.total_deals}+ сделок${ratingPart}`;
+  el.innerText = `🚀 Работаем с ${stats.since_year} года · ${stats.total_deals}+ сделок`;
   el.classList.remove("hidden");
 }
 
@@ -388,7 +477,6 @@ apiFetch("/api/rates").then(data => {
     document.querySelectorAll(".admin-only").forEach(el => el.classList.remove("hidden"));
     loadAdsPanel();
     loadCharts();
-    loadMarkup();
   }
 
   loadRateCards();
@@ -519,20 +607,7 @@ function loadAdsPanel() {
     });
   }).catch(e => toast("Ошибка загрузки объявлений: " + e.message));
 }
-function loadMarkup() {
-  apiFetch("/api/admin/markup").then(data => {
-    document.getElementById("markup-input").value = data.markup_percent;
-  });
-}
 
-function saveMarkup() {
-  const value = parseFloat(document.getElementById("markup-input").value);
-  if (isNaN(value)) { toast("Введи число"); return; }
-  apiFetch("/api/admin/markup", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ markup_percent: value }),
-  }).then(() => { toast("✅ Наценка сохранена"); tg.HapticFeedback.notificationOccurred("success"); });
-}
 // --- Админ: графики ---
 function loadCharts() {
   apiFetch("/api/admin/rate_history?hours=24").then(data => {
@@ -545,14 +620,30 @@ function loadCharts() {
       ]},
       options: { plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
     });
-  });
+  }).catch(e => toast("Ошибка графика курса: " + e.message));
   apiFetch("/api/admin/click_history?days=7").then(data => {
     new Chart(document.getElementById("clickChart"), {
       type: "bar",
       data: { labels: data.history.map(h => h.day), datasets: [{ label: "Клики", data: data.history.map(h => h.count), backgroundColor: "#0a84ff" }] },
       options: { plugins: { legend: { labels: { color: "#888" } } }, scales: { x: { ticks: { color: "#888" } }, y: { ticks: { color: "#888" } } } },
     });
-  });
+  }).catch(e => toast("Ошибка графика кликов: " + e.message));
+
+  apiFetch("/api/admin/conversion?days=7").then(data => {
+    const box = document.getElementById("conversion-card");
+    if (!data.conversion.length) { box.innerText = "Пока нет данных."; return; }
+    box.innerHTML = data.conversion.map(c => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.15));font-size:13px;">
+        <span>${c.exchange}</span>
+        <span>${c.clicks} кликов → ${c.orders} сделок ${c.conversion_pct !== null ? `(${c.conversion_pct}%)` : ""}</span>
+      </div>
+    `).join("") + `<div style="font-size:11px;opacity:0.6;margin-top:8px;">Для HTX/MEXC сделки не отслеживаются автоматически — только клики.</div>`;
+  }).catch(e => toast("Ошибка конверсии: " + e.message));
+
+  apiFetch("/api/admin/reviews").then(data => {
+    const box = document.getElementById("reviews-card");
+    box.innerText = data.count ? `⭐ ${data.avg_rating} средняя оценка (${data.count} отзывов)` : "Пока нет отзывов.";
+  }).catch(e => toast("Ошибка отзывов: " + e.message));
 }
 </script>
 </body>
