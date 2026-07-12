@@ -158,12 +158,14 @@
 
   <div id="ex-screen-list" class="hidden">
     <h3 id="exchanges-title">Выбери биржу</h3>
+    <div id="exchange-limit-note" style="font-size:13px;opacity:0.7;margin-bottom:10px;"></div>
     <div id="exchanges-list"></div>
     <button class="btn btn-ghost" onclick="showExSub('ex-screen-select')">⬅️ Назад</button>
   </div>
 
   <div id="ex-screen-amount" class="hidden">
     <h3>Какую сумму?</h3>
+    <div id="amount-limit-note" style="font-size:13px;opacity:0.7;margin-bottom:10px;"></div>
     <div class="card">
       <input type="text" id="amount-input" placeholder="Например: 10000 ₽ или 100 USDT" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.2));background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
     </div>
@@ -182,6 +184,14 @@
 <!-- ВКЛАДКА: Объявления (админ) -->
 <div id="view-ads" class="view hidden">
   <h2>⚙️ Объявления</h2>
+
+  <div class="card" id="limits-card">
+    <div style="font-size:13px;opacity:0.7;margin-bottom:10px;">Доступный объём (необязательно, для клиента)</div>
+    <input type="number" id="limit-buy-input" placeholder="Лимит на покупку, ₽ (пусто = без лимита)" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);margin-bottom:8px;">
+    <input type="number" id="limit-sell-input" placeholder="Лимит на продажу, ₽ (пусто = без лимита)" style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, #ccc);background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);margin-bottom:8px;">
+    <button class="btn btn-success" id="save-limits-btn">💾 Сохранить лимиты</button>
+  </div>
+
   <div id="ads-list"></div>
 </div>
 
@@ -476,6 +486,7 @@ apiFetch("/api/rates").then(data => {
     document.getElementById("admin-badge").innerHTML = '<span class="admin-badge">админ</span>';
     document.querySelectorAll(".admin-only").forEach(el => el.classList.remove("hidden"));
     loadAdsPanel();
+    loadLimitsPanel();
     loadCharts();
   }
 
@@ -529,9 +540,15 @@ function openExchangeList(side) {
   document.getElementById("exchanges-title").innerText = side === "buy" ? "Купить USDT — выбери биржу" : "Продать USDT — выбери биржу";
   const list = document.getElementById("exchanges-list");
   list.innerHTML = "Загрузка...";
+  document.getElementById("exchange-limit-note").innerText = "";
+  document.getElementById("amount-limit-note").innerText = "";
   showExSub("ex-screen-list");
 
   apiFetch(`/api/client/exchanges?side=${side}`).then(data => {
+    window.currentLimit = data.limit || null;
+    const limitText = data.limit ? `Доступно: до ${formatRub(data.limit)}` : "";
+    document.getElementById("exchange-limit-note").innerText = limitText;
+    document.getElementById("amount-limit-note").innerText = limitText;
     if (!data.exchanges.length) { list.innerHTML = "Пока нет доступных объявлений."; return; }
     list.innerHTML = "";
     data.exchanges.forEach(ex => {
@@ -551,6 +568,10 @@ function openExchangeList(side) {
   }).catch(e => { list.innerHTML = "Ошибка: " + e.message; });
 }
 
+function formatRub(amount) {
+  return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " ₽";
+}
+
 function submitAmount(skip = false) {
   const amount = skip ? null : (document.getElementById("amount-input").value.trim() || null);
   apiFetch("/api/client/deliver", {
@@ -562,14 +583,33 @@ function submitAmount(skip = false) {
       <b>${currentSide === 'buy' ? 'Купить' : 'Продать'} USDT/RUB на ${data.exchange_name}</b><br>
       ${data.price ? '💱 Цена: ' + data.price.toFixed(2) + ' ₽<br>' : ''}
       ${amount ? '💵 Сумма: ' + amount + '<br>' : ''}
+      ${data.warning ? '<br><span style="color:#ff9500;">' + data.warning + '</span>' : ''}
     `;
     document.getElementById("result-link").href = data.link;
     showExSub("ex-screen-result");
+    if (data.warning) toast(data.warning);
     tg.HapticFeedback.notificationOccurred("success");
   }).catch(e => toast("Ошибка: " + e.message));
 }
 
 // --- Админ: объявления ---
+function loadLimitsPanel() {
+  apiFetch("/api/admin/limits").then(data => {
+    document.getElementById("limit-buy-input").value = data.buy || "";
+    document.getElementById("limit-sell-input").value = data.sell || "";
+  }).catch(e => toast("Ошибка: " + e.message));
+}
+
+document.getElementById("save-limits-btn").onclick = () => {
+  const buy = parseFloat(document.getElementById("limit-buy-input").value) || null;
+  const sell = parseFloat(document.getElementById("limit-sell-input").value) || null;
+  Promise.all([
+    apiFetch("/api/admin/limits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ side: "buy", amount: buy }) }),
+    apiFetch("/api/admin/limits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ side: "sell", amount: sell }) }),
+  ]).then(() => { toast("✅ Лимиты сохранены"); tg.HapticFeedback.notificationOccurred("success"); })
+    .catch(e => toast("Ошибка: " + e.message));
+};
+
 function loadAdsPanel() {
   apiFetch("/api/admin/ads").then(data => {
     const list = document.getElementById("ads-list");
