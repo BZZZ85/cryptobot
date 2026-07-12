@@ -4,8 +4,8 @@
 """
 
 import hashlib
-import time
 import hmac
+import time
 from urllib.parse import parse_qsl
 
 import config
