@@ -43,8 +43,8 @@ def build_exchanges() -> dict:
             passphrase=os.getenv("BITGET_API_PASSPHRASE"),
         )
 
-    if _bool("HTX_ENABLED"):
-        exchanges["htx"] = ManualExchange(name="HTX", key="htx")
+   if _bool("TELEGRAMWALLET_ENABLED"):
+        exchanges["wallet"] = ManualExchange(name="Telegram Wallet", key="wallet")
 
     if _bool("MEXC_ENABLED"):
         exchanges["mexc"] = ManualExchange(name="MEXC", key="mexc")
