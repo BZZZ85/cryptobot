@@ -7,11 +7,36 @@ GET https://api.rufinex.ru/api/rates -> {"buy": "79.3", "sell": "79.8"}
 import requests
 import time
 
+import config
 import storage
 
 _cache = {"rates": None, "fetched_at": 0}
 CACHE_TTL_SECONDS = 60  # не дёргаем rufinex чаще раза в минуту
 RUFINEX_API_URL = "https://api.rufinex.ru/api/rates"
+
+DEFAULT_MARKUP_PERCENT = 5.0  # наценка по умолчанию, пока админ не задал свою через /setmarkup
+_markup_cache = {"value": None, "fetched_at": 0}
+MARKUP_CACHE_TTL_SECONDS = 60
+
+
+def get_markup_percent() -> float:
+    """Текущая наценка в процентах. Настраивается командой /setmarkup, хранится в БД, кэшируется на минуту."""
+    now = time.time()
+    if _markup_cache["value"] is not None and now - _markup_cache["fetched_at"] < MARKUP_CACHE_TTL_SECONDS:
+        return _markup_cache["value"]
+    try:
+        value = float(storage.get_setting("markup_percent", str(DEFAULT_MARKUP_PERCENT)))
+    except Exception:
+        value = DEFAULT_MARKUP_PERCENT
+    _markup_cache["value"] = value
+    _markup_cache["fetched_at"] = now
+    return value
+
+
+def set_markup_percent(value: float):
+    storage.set_setting("markup_percent", str(value))
+    _markup_cache["value"] = value
+    _markup_cache["fetched_at"] = time.time()
 
 
 def fetch_base_rates() -> dict | None:
@@ -53,10 +78,30 @@ def compute_price_with_markup(side: str) -> float | None:
     base = rates.get(rufinex_side)
     if base is None:
         return None
-    markup_percent = storage.get_markup_percent()
-    return round(base * (1 + markup_percent / 100), 2)
+    return round(base * (1 + get_markup_percent() / 100), 2)
 def get_cache_age_seconds() -> int | None:
     """Сколько секунд назад в последний раз реально обновлялся курс. None, если ещё не запрашивали."""
     if not _cache["rates"]:
         return None
     return int(time.time() - _cache["fetched_at"])
+
+
+def apply_loyalty_discount(price: float | None, side: str, chat_id: int | None) -> float | None:
+    """
+    Улучшает цену постоянным клиентам (>= LOYALTY_THRESHOLD_DEALS сделок).
+    side='buy'  (клиент покупает у нас) -> цена ниже, выгоднее клиенту.
+    side='sell' (клиент продаёт нам)    -> цена выше, выгоднее клиенту.
+    """
+    if price is None or chat_id is None:
+        return price
+    if storage.get_user_deal_count(chat_id) < config.LOYALTY_THRESHOLD_DEALS:
+        return price
+    discount = config.LOYALTY_DISCOUNT_PERCENT / 100
+    factor = (1 - discount) if side == "buy" else (1 + discount)
+    return round(price * factor, 2)
+
+
+def is_loyal_client(chat_id: int | None) -> bool:
+    if chat_id is None:
+        return False
+    return storage.get_user_deal_count(chat_id) >= config.LOYALTY_THRESHOLD_DEALS
