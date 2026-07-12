@@ -45,7 +45,8 @@ async def api_rates(authorization: str = Header(default="")):
         "instagram": config.INSTAGRAM_URL or None,
         "support": support_url,
     }
-    return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age, "social_links": social_links}
+    stats = {"since_year": config.WORKING_SINCE_YEAR, "total_deals": storage.get_total_clicks_count()}
+    return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age, "social_links": social_links, "stats": stats}
 
 class AdUpdate(BaseModel):
     exchange: str
@@ -160,7 +161,7 @@ async def api_client_deliver(payload: ClientDeliverRequest, user=Depends(get_use
         raise HTTPException(status_code=404, detail="Объявление недоступно")
 
     username = f"@{user.get('username')}" if user.get("username") else user.get("first_name", "Клиент")
-    storage.record_click(payload.exchange, payload.side, username)
+    storage.record_click(payload.exchange, payload.side, username, user.get("id"))
 
     side_label = "Купить" if payload.side == "buy" else "Продать"
     amount_line = f" (сумма: {payload.amount})" if payload.amount else ""
@@ -171,4 +172,21 @@ async def api_client_deliver(payload: ClientDeliverRequest, user=Depends(get_use
     )
 
     return {"link": ad["link"], "price": ad.get("price"), "exchange_name": exchange.name}
+
+
+@app.get("/api/client/profile")
+async def api_client_profile(user=Depends(get_user)):
+    history = storage.get_user_clicks(user["id"], limit=10)
+    for h in history:
+        ex = EXCHANGES.get(h["exchange"])
+        h["exchange_name"] = ex.name if ex else h["exchange"]
+        h["created_at"] = h["created_at"].isoformat()
+    referral_link = f"https://t.me/{config.BOT_USERNAME}?start=ref_{user['id']}" if config.BOT_USERNAME else None
+    return {
+        "history": history,
+        "referral_link": referral_link,
+        "referral_count": storage.get_referral_count(user["id"]),
+    }
+
+
 app.mount("/", StaticFiles(directory="webapp", html=True), name="static")
