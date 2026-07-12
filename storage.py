@@ -47,6 +47,7 @@ def init_db():
                     created_at TIMESTAMP DEFAULT now()
                 )
             """)
+            cur.execute("ALTER TABLE clicks ADD COLUMN IF NOT EXISTS chat_id BIGINT")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS clients (
                     chat_id BIGINT PRIMARY KEY,
@@ -54,6 +55,7 @@ def init_db():
                     first_seen TIMESTAMP DEFAULT now()
                 )
             """)
+            cur.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS referred_by BIGINT")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS rate_history (
                     id SERIAL PRIMARY KEY,
@@ -114,13 +116,34 @@ def mark_order_seen(order_id: str):
             )
 
 
-def record_click(exchange: str, side: str, username: str):
+def record_click(exchange: str, side: str, username: str, chat_id: int = None):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO clicks (exchange, side, username) VALUES (%s, %s, %s)",
-                (exchange, side, username),
+                "INSERT INTO clicks (exchange, side, username, chat_id) VALUES (%s, %s, %s, %s)",
+                (exchange, side, username, chat_id),
             )
+
+
+def get_user_clicks(chat_id: int, limit: int = 10) -> list:
+    """История сделок конкретного клиента для вкладки Профиль."""
+    with get_conn() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("""
+                SELECT exchange, side, created_at
+                FROM clicks
+                WHERE chat_id=%s
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (chat_id, limit))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def get_total_clicks_count() -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM clicks")
+            return cur.fetchone()[0]
 
 
 def get_click_stats() -> list:
@@ -134,15 +157,22 @@ def get_click_stats() -> list:
                 ORDER BY count DESC
             """)
             return [dict(row) for row in cur.fetchall()]
-def record_client(chat_id: int, username: str) -> bool:
+def record_client(chat_id: int, username: str, referred_by: int = None) -> bool:
     """Возвращает True, если это новый клиент (первое обращение)."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO clients (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING chat_id",
-                (chat_id, username),
+                "INSERT INTO clients (chat_id, username, referred_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING chat_id",
+                (chat_id, username, referred_by),
             )
             return cur.fetchone() is not None
+
+
+def get_referral_count(chat_id: int) -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM clients WHERE referred_by=%s", (chat_id,))
+            return cur.fetchone()[0]
 
 
 def get_all_client_ids() -> list:
