@@ -86,7 +86,19 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_setup.pop(update.effective_chat.id, None)  # сбрасываем зависшие состояния мастера, если были
     user = update.effective_user
     username = f"@{user.username}" if user.username else user.full_name
-    is_new_client = storage.record_client(update.effective_chat.id, username)
+
+    referred_by = None
+    if context.args:
+        arg = context.args[0]
+        if arg.startswith("ref_"):
+            try:
+                candidate = int(arg[4:])
+                if candidate != update.effective_chat.id:
+                    referred_by = candidate
+            except ValueError:
+                pass
+
+    is_new_client = storage.record_client(update.effective_chat.id, username, referred_by=referred_by)
 
     if is_new_client and config.WELCOME_STICKER_ID:
         try:
@@ -203,7 +215,7 @@ async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, usernam
         + f"\n\n👇 Нажми кнопку ниже, чтобы открыть сделку"
     )
 
-    storage.record_click(exchange_key, side, username)
+    storage.record_click(exchange_key, side, username, chat_id)
 
     notify_text = (
         f"👉 Клиент {username} выбрал: {SIDE_LABELS[side]} USDT/RUB на {exchange.name}"
@@ -321,13 +333,7 @@ async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Точка входа в мастер настройки. Дальше всё происходит через кнопки."""
     if not is_admin(update):
         return
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    had_state = pending_amount_request.pop(chat_id, None) or pending_setup.pop(chat_id, None)
-    if had_state:
-        await update.message.reply_text("Отменено. Можешь начать заново — /start или ⚙️ Настройка.")
-    else:
-        await update.message.reply_text("Сейчас нечего отменять.")
+
     manual_keys = [key for key, ex in EXCHANGES.items() if not ex.has_api]
     if not manual_keys:
         await update.message.reply_text("Нет ручных бирж для настройки (все подключены через API).")
@@ -616,20 +622,32 @@ async def record_rate_history(context: ContextTypes.DEFAULT_TYPE):
             storage.record_rate_snapshot(rates["buy"], rates["sell"])
     except Exception as e:
         logger.error(f"Не удалось сохранить историю курса: {e}")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    had_state = pending_amount_request.pop(chat_id, None) or pending_setup.pop(chat_id, None)
+    if had_state:
+        await update.message.reply_text("Отменено. Можешь начать заново — /start или ⚙️ Настройка.")
+    else:
+        await update.message.reply_text("Сейчас нечего отменять.")
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Ловит все необработанные исключения в хендлерах и репортит админам, чтобы не летать в потёмках."""
+    logger.error("Необработанная ошибка", exc_info=context.error)
+    for admin_id in config.ADMIN_CHAT_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=f"⚠️ Ошибка в боте:\n<code>{context.error}</code>",
+            )
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # ЗАПУСК
 # ---------------------------------------------------------------------------
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Ловит все необработанные исключения в хендлерах и репортит админу, чтобы не летать в потёмках."""
-    logging.error("Необработанная ошибка", exc_info=context.error)
-    try:
-        await context.bot.send_message(
-            chat_id=config.ADMIN_CHAT_ID,
-            text=f"⚠️ Ошибка в боте:\n<code>{context.error}</code>",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
+
 def main():
     if not config.TELEGRAM_BOT_TOKEN or not config.ADMIN_CHAT_IDS:
         print("ОШИБКА: заполни TELEGRAM_BOT_TOKEN и ADMIN_CHAT_IDS в .env")
@@ -643,9 +661,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("broadcast", broadcast))
-    application.add_error_handler(error_handler)
     application.add_handler(CommandHandler("setup", setup))
-    application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
     application.add_handler(CommandHandler("status", status))
@@ -655,6 +671,8 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.Text(["❓ Помощь"]), help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_setup_text))
+    application.add_handler(CommandHandler("cancel", cancel))
+    application.add_error_handler(error_handler)
 
     application.job_queue.run_repeating(check_new_orders, interval=config.CHECK_ORDERS_INTERVAL, first=10)
     application.job_queue.run_repeating(record_rate_history, interval=300, first=15)
