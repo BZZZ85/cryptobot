@@ -45,14 +45,9 @@ async def api_rates(authorization: str = Header(default="")):
         "instagram": config.INSTAGRAM_URL or None,
         "support": support_url,
     }
-    review_stats = storage.get_review_stats()
-    stats = {
-        "since_year": config.WORKING_SINCE_YEAR,
-        "total_deals": storage.get_total_clicks_count(),
-        "rating": review_stats["avg_rating"],
-        "rating_count": review_stats["count"],
-    }
+    stats = {"since_year": config.WORKING_SINCE_YEAR, "total_deals": storage.get_total_clicks_count()}
     return {"rates_text": text, "is_admin": is_admin, "rate_age_seconds": age, "social_links": social_links, "stats": stats}
+
 class AdUpdate(BaseModel):
     exchange: str
     side: str
@@ -117,47 +112,20 @@ async def api_click_history(days: int = 7, user=Depends(require_admin)):
 
 
 @app.get("/api/admin/conversion")
-async def api_conversion(user=Depends(require_admin)):
-    return storage.get_conversion_stats()
+async def api_admin_conversion(days: int = 7, user=Depends(require_admin)):
+    return {"conversion": storage.get_conversion_stats(days)}
 
 
-@app.get("/api/admin/markup")
-async def api_get_markup(user=Depends(require_admin)):
-    return {"markup_percent": storage.get_markup_percent()}
-
-
-class MarkupUpdate(BaseModel):
-    markup_percent: float
-
-
-@app.post("/api/admin/markup")
-async def api_set_markup(payload: MarkupUpdate, user=Depends(require_admin)):
-    storage.set_markup_percent(payload.markup_percent)
-    return {"ok": True}
-
-
-@app.get("/api/reviews")
-async def api_reviews(authorization: str = Header(default="")):
-    get_user(authorization)  # просто проверяем, что запрос из Telegram
-    return {"reviews": storage.get_recent_reviews(10), "stats": storage.get_review_stats()}
-
-
-def notify_admins(text: str, click_id: int = None):
+@app.get("/api/admin/reviews")
+async def api_admin_reviews(user=Depends(require_admin)):
+    return storage.get_review_stats()
+def notify_admins(text: str):
     """Шлём уведомление напрямую через Telegram HTTP API (без объекта бота - мы отдельный процесс)."""
-    reply_markup = None
-    if click_id is not None:
-        reply_markup = {
-            "inline_keyboard": [[{"text": "✅ Сделка состоялась", "callback_data": f"deal_done:{click_id}"}]]
-        }
-
     for admin_id in config.ADMIN_CHAT_IDS:
         try:
-            payload = {"chat_id": admin_id, "text": text}
-            if reply_markup:
-                payload["reply_markup"] = reply_markup
             requests.post(
                 f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage",
-                json=payload,
+                json={"chat_id": admin_id, "text": text},
                 timeout=10,
             )
         except Exception:
@@ -202,17 +170,27 @@ async def api_client_deliver(payload: ClientDeliverRequest, user=Depends(get_use
     if not ad or not ad.get("link"):
         raise HTTPException(status_code=404, detail="Объявление недоступно")
 
+    ad["price"] = rufinex_client.apply_loyalty_discount(ad.get("price"), payload.side, user.get("id"))
+
     username = f"@{user.get('username')}" if user.get("username") else user.get("first_name", "Клиент")
-    click_id = storage.record_click(payload.exchange, payload.side, username, user.get("id"))
+    storage.record_click(payload.exchange, payload.side, username, user.get("id"))
+
+    profile = storage.get_client_profile(user.get("id")) or {}
+    profile_line = ""
+    if profile.get("full_name"):
+        profile_line += f"\n👤 ФИО: {profile['full_name']}"
+    if profile.get("exchange_nickname"):
+        profile_line += f"\n🏷 Ник на бирже: {profile['exchange_nickname']}"
 
     side_label = "Купить" if payload.side == "buy" else "Продать"
     amount_line = f" (сумма: {payload.amount})" if payload.amount else ""
     notify_admins(
         f"👉 [Панель] Клиент {username} выбрал: {side_label} USDT/RUB на {exchange.name}"
         + (f" (~{ad['price']:.2f} ₽)" if ad.get("price") else "")
-        + amount_line,
-        click_id=click_id,
+        + amount_line
+        + profile_line
     )
+
     return {"link": ad["link"], "price": ad.get("price"), "exchange_name": exchange.name}
 
 
@@ -224,11 +202,59 @@ async def api_client_profile(user=Depends(get_user)):
         h["exchange_name"] = ex.name if ex else h["exchange"]
         h["created_at"] = h["created_at"].isoformat()
     referral_link = f"https://t.me/{config.BOT_USERNAME}?start=ref_{user['id']}" if config.BOT_USERNAME else None
+    profile = storage.get_client_profile(user["id"]) or {}
+    deals_count = storage.get_user_deal_count(user["id"])
     return {
         "history": history,
         "referral_link": referral_link,
         "referral_count": storage.get_referral_count(user["id"]),
+        "full_name": profile.get("full_name"),
+        "exchange_nickname": profile.get("exchange_nickname"),
+        "deals_count": deals_count,
+        "is_loyal": deals_count >= config.LOYALTY_THRESHOLD_DEALS,
+        "loyalty_threshold": config.LOYALTY_THRESHOLD_DEALS,
+        "loyalty_discount_percent": config.LOYALTY_DISCOUNT_PERCENT,
     }
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = None
+    exchange_nickname: str | None = None
+
+
+@app.post("/api/client/profile")
+async def api_client_update_profile(payload: ProfileUpdate, user=Depends(get_user)):
+    storage.update_client_profile(user["id"], full_name=payload.full_name, exchange_nickname=payload.exchange_nickname)
+    return {"ok": True}
+
+
+class PriceAlertRequest(BaseModel):
+    side: str
+    direction: str
+    threshold: float
+
+
+@app.get("/api/client/alerts")
+async def api_client_alerts(user=Depends(get_user)):
+    return {"alerts": storage.get_user_alerts(user["id"])}
+
+
+@app.post("/api/client/alerts")
+async def api_client_create_alert(payload: PriceAlertRequest, user=Depends(get_user)):
+    if payload.side not in ("buy", "sell") or payload.direction not in ("above", "below"):
+        raise HTTPException(status_code=400, detail="Некорректные параметры алерта")
+    alert_id = storage.create_price_alert(user["id"], payload.side, payload.direction, payload.threshold)
+    return {"ok": True, "id": alert_id}
+
+
+class AlertCancelRequest(BaseModel):
+    id: int
+
+
+@app.post("/api/client/alerts/cancel")
+async def api_client_cancel_alert(payload: AlertCancelRequest, user=Depends(get_user)):
+    storage.cancel_alert(payload.id, user["id"])
+    return {"ok": True}
 
 
 app.mount("/", StaticFiles(directory="webapp", html=True), name="static")
