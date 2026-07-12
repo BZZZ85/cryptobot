@@ -18,6 +18,8 @@ TELEGRAM_CHANNEL_URL = os.getenv("TELEGRAM_CHANNEL_URL", "")
 INSTAGRAM_URL = os.getenv("INSTAGRAM_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "")  # без @, для реферальных ссылок t.me/<юзернейм>?start=ref_...
 WORKING_SINCE_YEAR = os.getenv("WORKING_SINCE_YEAR", "2024")
+LOYALTY_THRESHOLD_DEALS = int(os.getenv("LOYALTY_THRESHOLD_DEALS", "5"))  # после скольких сделок клиент становится "постоянным"
+LOYALTY_DISCOUNT_PERCENT = float(os.getenv("LOYALTY_DISCOUNT_PERCENT", "1.0"))  # насколько улучшаем цену постоянным клиентам
 CHECK_ORDERS_INTERVAL = 30  # секунд
 
 
@@ -43,8 +45,8 @@ def build_exchanges() -> dict:
             passphrase=os.getenv("BITGET_API_PASSPHRASE"),
         )
 
-    if _bool("TELEGRAMWALLET_ENABLED"):
-        exchanges["wallet"] = ManualExchange(name="Telegram Wallet", key="wallet")
+    if _bool("HTX_ENABLED"):
+        exchanges["htx"] = ManualExchange(name="HTX", key="htx")
 
     if _bool("MEXC_ENABLED"):
         exchanges["mexc"] = ManualExchange(name="MEXC", key="mexc")
