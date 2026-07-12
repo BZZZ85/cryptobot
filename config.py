@@ -16,6 +16,8 @@ CURRENCY = "RUB"
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@your_username")
 TELEGRAM_CHANNEL_URL = os.getenv("TELEGRAM_CHANNEL_URL", "")
 INSTAGRAM_URL = os.getenv("INSTAGRAM_URL", "")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "")  # без @, для реферальных ссылок t.me/<юзернейм>?start=ref_...
+WORKING_SINCE_YEAR = os.getenv("WORKING_SINCE_YEAR", "2024")
 CHECK_ORDERS_INTERVAL = 30  # секунд
 
 
