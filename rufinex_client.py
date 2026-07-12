@@ -105,3 +105,36 @@ def is_loyal_client(chat_id: int | None) -> bool:
     if chat_id is None:
         return False
     return storage.get_user_deal_count(chat_id) >= config.LOYALTY_THRESHOLD_DEALS
+
+
+def get_available_limit(side: str) -> float | None:
+    """Доступный объём в рублях, который админ готов обработать по этой стороне сделки.
+    Задаётся командой /setlimit, хранится в settings. None - лимит не задан (без ограничений)."""
+    value = storage.get_setting(f"limit_{side}")
+    try:
+        return float(value) if value else None
+    except ValueError:
+        return None
+
+
+def set_available_limit(side: str, amount: float | None):
+    storage.set_setting(f"limit_{side}", str(amount) if amount else "")
+
+
+def format_limit(amount: float) -> str:
+    return f"{amount:,.0f} ₽".replace(",", " ")
+
+
+def check_amount_limit(amount, side: str) -> str | None:
+    """Если сумма, введённая клиентом, больше заданного лимита - возвращает текст предупреждения."""
+    limit = get_available_limit(side)
+    if not limit or not amount:
+        return None
+    cleaned = str(amount).lower().replace(" ", "").replace(",", ".").replace("₽", "").replace("руб", "").replace("usdt", "")
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+    if value > limit:
+        return f"⚠️ Сумма больше доступного объёма ({format_limit(limit)}) — уточни у поддержки перед сделкой."
+    return None
