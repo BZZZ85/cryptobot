@@ -129,12 +129,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "1️⃣ Жми «Купить» или «Продать» ниже\n"
                     "2️⃣ Выбери подходящую биржу\n"
                     "3️⃣ Укажи сумму (или пропусти этот шаг)\n"
-                    "4️⃣ Перейди по ссылке и выбери нужно объявление из списка, заверши сделку прямо на бирже\n\n"
+                    "4️⃣ Перейди по ссылке и выбери нужное объявление из списка, заверши сделку прямо на бирже\n\n"
                     "❓ Вопросы — команда /help"
                 ),
             )
 
-    await update.message.reply_text("👇 Что делаем дальше?", reply_markup=keyboard)
+    await update.message.reply_text("👇", reply_markup=keyboard)
     await update.message.reply_text(rates_text, reply_markup=inline_buttons)
 
 # Состояние пошагового мастера /setup для админа:
