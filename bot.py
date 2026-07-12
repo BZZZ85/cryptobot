@@ -141,7 +141,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "4️⃣ Перейди по ссылке и заверши сделку прямо на бирже\n\n"
                     "❓ Вопросы — команда /help"
                 ),
-            
+            )
 
     await update.message.reply_text("👇 Что делаем дальше?", reply_markup=keyboard)
     await update.message.reply_text(rates_text, reply_markup=inline_buttons)
