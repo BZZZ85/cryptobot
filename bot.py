@@ -10,6 +10,7 @@
                                               на каждом шаге есть кнопка "Назад"
     /setlink <биржа> <buy|sell> <ссылка>   - задать ссылку вручную командой (запасной вариант)
     /setprice <биржа> <buy|sell> <цена>    - задать цену вручную командой (запасной вариант)
+    /setlimit <buy|sell> <сумма>           - задать доступный объём (0 - убрать лимит)
     /status                                - показать все биржи и их текущие объявления
 
 Фоновая проверка (только для бирж с API - Bybit, Bitget):
@@ -81,6 +82,19 @@ async def build_rates_text() -> str:
     return "\n".join(lines)
 
 
+def build_side_buttons() -> InlineKeyboardMarkup:
+    buy_limit = rufinex_client.get_available_limit("buy")
+    sell_limit = rufinex_client.get_available_limit("sell")
+    buy_text = "💵 Купить USDT" + (f" (до {rufinex_client.format_limit(buy_limit)})" if buy_limit else "")
+    sell_text = "💰 Продать USDT" + (f" (до {rufinex_client.format_limit(sell_limit)})" if sell_limit else "")
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(buy_text, callback_data="side:buy", style="success"),
+            InlineKeyboardButton(sell_text, callback_data="side:sell", style="danger"),
+        ]
+    ])
+
+
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает курсы всех бирж + кнопки Купить/Продать. Вызывается из /start и кнопок Старт/Рестарт."""
     pending_setup.pop(update.effective_chat.id, None)  # сбрасываем зависшие состояния мастера, если были
@@ -109,12 +123,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rates_text = await build_rates_text()
 
-    inline_buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy", style="success"),
-            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell", style="danger"),
-        ]
-    ])
+    inline_buttons = build_side_buttons()
 
     # Два сообщения: одно держит постоянную клавиатуру снизу, второе - курсы и инлайн-кнопки
     keyboard = ADMIN_KEYBOARD if is_admin(update) else MAIN_KEYBOARD
@@ -134,12 +143,7 @@ pending_setup: dict[int, dict] = {}
 pending_amount_request: dict[int, dict] = {}
 pending_broadcast: dict[int, str] = {}
 async def show_side_selection(query):
-    inline_buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("💵 Купить USDT", callback_data="side:buy", style="success"),
-            InlineKeyboardButton("💰 Продать USDT", callback_data="side:sell", style="danger"),
-        ]
-    ])
+    inline_buttons = build_side_buttons()
     await query.edit_message_text("👇 Что делаем дальше?", reply_markup=inline_buttons)
 
 def is_admin(update: Update) -> bool:
@@ -212,11 +216,14 @@ async def deliver_link(context: ContextTypes.DEFAULT_TYPE, chat_id: int, usernam
 
     amount_line = f"\n💵 Сумма: <b>{amount}</b>" if amount else ""
     loyalty_line = "\n🎁 Применена скидка постоянного клиента" if is_loyal else ""
+    limit_warning = rufinex_client.check_amount_limit(amount, side)
+    limit_warning_line = f"\n{limit_warning}" if limit_warning else ""
     client_text = (
         f"✅ <b>{SIDE_LABELS[side]} USDT/RUB на {exchange.name}</b>"
         + (f"\n💱 Цена: <code>{ad['price']:.2f} ₽</code>" if ad.get("price") else "")
         + amount_line
         + loyalty_line
+        + limit_warning_line
         + f"\n\n👇 Нажми кнопку ниже, чтобы открыть сделку"
     )
 
@@ -272,13 +279,15 @@ async def ask_for_review(context: ContextTypes.DEFAULT_TYPE):
 async def ask_for_amount(query, exchange_key: str, side: str):
     chat_id = query.message.chat_id
     pending_amount_request[chat_id] = {"exchange": exchange_key, "side": side}
+    limit = rufinex_client.get_available_limit(side)
+    limit_line = f"\nДоступно: до {rufinex_client.format_limit(limit)}." if limit else ""
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("Пропустить", callback_data=f"amount_skip:{exchange_key}:{side}")],
         [InlineKeyboardButton("⬅️ Назад", callback_data=f"back_to_exchanges:{side}")],
     ])
     await query.edit_message_text(
         f"Какую сумму хочешь {SIDE_LABELS[side].lower()}? Напиши число (например 10000 ₽ или 100 USDT), "
-        f"или нажми Пропустить.",
+        f"или нажми Пропустить." + limit_line,
         reply_markup=buttons,
     )
 
@@ -535,13 +544,13 @@ async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
     if len(context.args) < 3:
-        await update.message.reply_text("Формат: /setlink <биржа> <buy|sell> <ссылка>\nПример: /setlink telegramwallet buy https://...")
+        await update.message.reply_text("Формат: /setlink <биржа> <buy|sell> <ссылка>\nПример: /setlink wallet buy https://...")
         return
 
     exchange_key, side, url = context.args[0].lower(), context.args[1].lower(), context.args[2]
     if exchange_key not in EXCHANGES or EXCHANGES[exchange_key].has_api:
         await update.message.reply_text(
-            "Эта команда только для 'ручных' бирж (например telegramwallet, mexc)."
+            "Эта команда только для 'ручных' бирж (например wallet, mexc)."
         )
         return
     if side not in ("buy", "sell"):
@@ -550,6 +559,35 @@ async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     storage.set_manual_ad(exchange_key, side, url=url)
     await update.message.reply_text(f"Ссылка для {exchange_key} ({side}) сохранена.")
+
+
+async def setlimit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Формат: /setlimit <buy|sell> <сумма_в_рублях>\n"
+            "Пример: /setlimit buy 250000\n"
+            "Чтобы убрать лимит: /setlimit buy 0"
+        )
+        return
+
+    side = context.args[0].lower()
+    if side not in ("buy", "sell"):
+        await update.message.reply_text("Сторона должна быть buy или sell.")
+        return
+    try:
+        amount = float(context.args[1])
+    except ValueError:
+        await update.message.reply_text("Сумма должна быть числом.")
+        return
+
+    if amount <= 0:
+        rufinex_client.set_available_limit(side, None)
+        await update.message.reply_text(f"Лимит для «{SIDE_LABELS[side]}» убран.")
+    else:
+        rufinex_client.set_available_limit(side, amount)
+        await update.message.reply_text(f"Лимит для «{SIDE_LABELS[side]}» установлен: {rufinex_client.format_limit(amount)}")
 
 
 async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -567,7 +605,7 @@ async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if exchange_key not in EXCHANGES or EXCHANGES[exchange_key].has_api:
-        await update.message.reply_text("Эта команда только для 'ручных' бирж (например telegramwallet, mexc).")
+        await update.message.reply_text("Эта команда только для 'ручных' бирж (например wallet, mexc).")
         return
 
     storage.set_manual_ad(exchange_key, side, price=price)
@@ -752,6 +790,7 @@ def main():
     application.add_handler(CommandHandler("setup", setup))
     application.add_handler(CommandHandler("setlink", setlink))
     application.add_handler(CommandHandler("setprice", setprice))
+    application.add_handler(CommandHandler("setlimit", setlimit))
     application.add_handler(CommandHandler("setmarkup", setmarkup))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(handle_callback))
