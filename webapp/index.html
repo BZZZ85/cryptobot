@@ -182,6 +182,13 @@
 <!-- ВКЛАДКА: Объявления (админ) -->
 <div id="view-ads" class="view hidden">
   <h2>⚙️ Объявления</h2>
+  <div class="card" id="markup-card">
+    <div style="font-size:13px;opacity:0.7;margin-bottom:8px;">Наценка сверху курса rufinex</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="number" step="0.1" id="markup-input" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--tg-theme-hint-color, rgba(128,128,128,0.2));background:var(--tg-theme-bg-color, #fff);color:var(--tg-theme-text-color, #000);">
+      <button class="btn-primary" style="border-radius:8px;color:white;border:none;padding:10px 14px;" onclick="saveMarkup()">%  Сохранить</button>
+    </div>
+  </div>
   <div id="ads-list"></div>
 </div>
 
@@ -304,7 +311,8 @@ loadProfileExtra();
 function renderStatsBadge(stats) {
   if (!stats) return;
   const el = document.getElementById("stats-badge");
-  el.innerText = `🚀 Работаем с ${stats.since_year} года · ${stats.total_deals}+ сделок`;
+  const ratingPart = stats.rating ? ` · ⭐ ${stats.rating} (${stats.rating_count})` : "";
+  el.innerText = `🚀 Работаем с ${stats.since_year} года · ${stats.total_deals}+ сделок${ratingPart}`;
   el.classList.remove("hidden");
 }
 
@@ -380,6 +388,7 @@ apiFetch("/api/rates").then(data => {
     document.querySelectorAll(".admin-only").forEach(el => el.classList.remove("hidden"));
     loadAdsPanel();
     loadCharts();
+    loadMarkup();
   }
 
   loadRateCards();
@@ -510,7 +519,20 @@ function loadAdsPanel() {
     });
   }).catch(e => toast("Ошибка загрузки объявлений: " + e.message));
 }
+function loadMarkup() {
+  apiFetch("/api/admin/markup").then(data => {
+    document.getElementById("markup-input").value = data.markup_percent;
+  });
+}
 
+function saveMarkup() {
+  const value = parseFloat(document.getElementById("markup-input").value);
+  if (isNaN(value)) { toast("Введи число"); return; }
+  apiFetch("/api/admin/markup", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ markup_percent: value }),
+  }).then(() => { toast("✅ Наценка сохранена"); tg.HapticFeedback.notificationOccurred("success"); });
+}
 // --- Админ: графики ---
 function loadCharts() {
   apiFetch("/api/admin/rate_history?hours=24").then(data => {
