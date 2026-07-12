@@ -122,7 +122,16 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(BANNER_PATH, "rb") as photo:
             await update.message.reply_photo(
                 photo=photo,
-                caption="🤖 <b>USDT/RUB Обменник</b>\nБыстро и по актуальному курсу",
+                caption=(
+                    "🤖 <b>USDT/RUB,,RUB ⇄ USDT Обменник ExUma</b>\n"
+                    "Быстро и по актуальному курсу\n\n"
+                    "<b>!Как это работает?:</b>\n"
+                    "1️⃣ Жми «Купить» или «Продать» ниже\n"
+                    "2️⃣ Выбери подходящую биржу\n"
+                    "3️⃣ Укажи сумму (или пропусти этот шаг)\n"
+                    "4️⃣ Перейди по ссылке и выбери нужно объявление из списка, заверши сделку прямо на бирже\n\n"
+                    "❓ Вопросы — команда /help"
+                ),
             )
 
     await update.message.reply_text("👇 Что делаем дальше?", reply_markup=keyboard)
