@@ -380,3 +380,27 @@ def set_setting(key: str, value: str):
                 "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
                 (key, str(value)),
             )
+def set_manual_discount(chat_id: int, percent: float):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE clients SET manual_discount_percent=%s WHERE chat_id=%s",
+                (percent, chat_id),
+            )
+
+
+def get_manual_discount(chat_id: int) -> float:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT manual_discount_percent FROM clients WHERE chat_id=%s", (chat_id,))
+            row = cur.fetchone()
+            return float(row[0]) if row and row[0] else 0.0
+
+
+def find_chat_id_by_username(username: str) -> int | None:
+    """Ищет chat_id клиента по его @username (без @)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM clients WHERE username ILIKE %s", (f"@{username}",))
+            row = cur.fetchone()
+            return row[0] if row else None
