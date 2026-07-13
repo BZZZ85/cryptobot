@@ -88,15 +88,24 @@ def get_cache_age_seconds() -> int | None:
 
 def apply_loyalty_discount(price: float | None, side: str, chat_id: int | None) -> float | None:
     """
-    Улучшает цену постоянным клиентам (>= LOYALTY_THRESHOLD_DEALS сделок).
+    Улучшает цену постоянным клиентам.
+    Берётся БОЛЬШАЯ из двух скидок:
+      - автоматическая (>= LOYALTY_THRESHOLD_DEALS завершённых сделок)
+      - ручная, выданная админом конкретному клиенту (storage.set_manual_discount)
     side='buy'  (клиент покупает у нас) -> цена ниже, выгоднее клиенту.
     side='sell' (клиент продаёт нам)    -> цена выше, выгоднее клиенту.
     """
     if price is None or chat_id is None:
         return price
-    if storage.get_user_deal_count(chat_id) < config.LOYALTY_THRESHOLD_DEALS:
+
+    auto_discount = config.LOYALTY_DISCOUNT_PERCENT if storage.get_user_deal_count(chat_id) >= config.LOYALTY_THRESHOLD_DEALS else 0.0
+    manual_discount = storage.get_manual_discount(chat_id)
+    discount_percent = max(auto_discount, manual_discount)
+
+    if discount_percent <= 0:
         return price
-    discount = config.LOYALTY_DISCOUNT_PERCENT / 100
+
+    discount = discount_percent / 100
     factor = (1 - discount) if side == "buy" else (1 + discount)
     return round(price * factor, 2)
 
