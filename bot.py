@@ -728,7 +728,43 @@ async def setmarkup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rufinex_client.set_markup_percent(value)
     await update.message.reply_text(f"✅ Наценка обновлена: {value}% (применится к ценам, которые считаются автоматически)")
 
+async def setdiscount_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Админская команда: /setdiscount @username 3  или  /setdiscount 123456789 3"""
+    if not is_admin(update):
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Формат: /setdiscount <@username или chat_id> <процент>\n"
+            "Пример: /setdiscount @ivan_petrov 3\n"
+            "Чтобы убрать скидку - укажи 0"
+        )
+        return
 
+    target, percent_raw = context.args[0], context.args[1]
+
+    if target.startswith("@"):
+        chat_id = storage.find_chat_id_by_username(target)
+        if chat_id is None:
+            await update.message.reply_text(f"Не нашёл клиента {target} - он должен хотя бы раз написать боту (/start).")
+            return
+    else:
+        try:
+            chat_id = int(target)
+        except ValueError:
+            await update.message.reply_text("Укажи @username или числовой chat_id.")
+            return
+
+    try:
+        percent = float(percent_raw.replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("Процент должен быть числом, например: 3 или 2.5")
+        return
+
+    storage.set_manual_discount(chat_id, percent)
+    if percent > 0:
+        await update.message.reply_text(f"✅ Клиенту {target} (id {chat_id}) выдана скидка {percent}%")
+    else:
+        await update.message.reply_text(f"✅ Скидка у клиента {target} (id {chat_id}) убрана")
 async def check_price_alerts(context: ContextTypes.DEFAULT_TYPE):
     """Раз в 5 минут сверяет базовый курс rufinex с алертами клиентов и уведомляет при срабатывании."""
     try:
@@ -801,6 +837,7 @@ def main():
     application.add_handler(CommandHandler("setprice", setprice))
     application.add_handler(CommandHandler("setlimit", setlimit))
     application.add_handler(CommandHandler("setmarkup", setmarkup))
+    application.add_handler(CommandHandler("setdiscount", setdiscount_command))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.Text(["▶️ Старт", "🔄 Рестарт"]), show_main_menu))
