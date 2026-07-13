@@ -230,6 +230,10 @@ async def api_client_profile(user=Depends(get_user)):
     referral_link = f"https://t.me/{config.BOT_USERNAME}?start=ref_{user['id']}" if config.BOT_USERNAME else None
     profile = storage.get_client_profile(user["id"]) or {}
     deals_count = storage.get_user_deal_count(user["id"])
+    manual_discount = storage.get_manual_discount(user["id"])
+    auto_eligible = deals_count >= config.LOYALTY_THRESHOLD_DEALS
+    effective_discount = max(manual_discount, config.LOYALTY_DISCOUNT_PERCENT if auto_eligible else 0)
+
     return {
         "history": history,
         "referral_link": referral_link,
@@ -237,9 +241,9 @@ async def api_client_profile(user=Depends(get_user)):
         "full_name": profile.get("full_name"),
         "exchange_nickname": profile.get("exchange_nickname"),
         "deals_count": deals_count,
-        "is_loyal": deals_count >= config.LOYALTY_THRESHOLD_DEALS,
+        "is_loyal": effective_discount > 0,
         "loyalty_threshold": config.LOYALTY_THRESHOLD_DEALS,
-        "loyalty_discount_percent": config.LOYALTY_DISCOUNT_PERCENT,
+        "loyalty_discount_percent": effective_discount,
     }
 
 
