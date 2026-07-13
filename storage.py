@@ -57,7 +57,7 @@ def init_db():
                     first_seen TIMESTAMP DEFAULT now()
                 )
             """)
-            cur.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS referred_by BIGINT")
+            cur.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS manual_discount_percent DOUBLE PRECISION DEFAULT 0")
             cur.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS full_name TEXT")
             cur.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS exchange_nickname TEXT")
             cur.execute("""
